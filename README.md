@@ -36,6 +36,12 @@ Without accepting, API requests fail with `400 Client Error: Not all the require
 
 ### Docker Compose (recommended)
 
+Create `.env` in the repo root and set at least:
+
+```bash
+ORS_API_KEY=<your_openrouteservice_key>
+```
+
 Start API:
 
 ```bash
@@ -48,6 +54,7 @@ API is available at `http://127.0.0.1:8000/`.
 
 - `./data` to `/app/data` (artifacts persist on host)
 - `${HOME}/.cdsapirc` to `/home/appuser/.cdsapirc:ro` (CDS credentials)
+- Exports `CDSAPI_RC=/home/appuser/.cdsapirc` in the container
 
 Start API + scheduler:
 
@@ -94,6 +101,8 @@ docker run --rm \
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
+set -a; source .env; set +a
+export CDSAPI_RC="$HOME/.cdsapirc"
 uvicorn api.app:app --reload
 ```
 
@@ -117,6 +126,14 @@ Optional flags:
 . .venv/bin/activate
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
+```
+
+Run live ORS integration tests (real network call, optional):
+
+```bash
+. .venv/bin/activate
+set -a; source .env; set +a
+RUN_LIVE_ORS_TESTS=1 python -m pytest -q -m live_ors
 ```
 
 ## Behavior

@@ -67,6 +67,76 @@
         border-top: 1px solid #d8e2ef;
       }
 
+      .route-panel {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        z-index: 1000;
+        width: min(360px, calc(100% - 40px));
+        background: #fff;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 8px 18px rgba(16, 36, 63, 0.16);
+        display: grid;
+        gap: 10px;
+      }
+
+      .route-panel h2 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .coord-row {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .route-panel label {
+        display: grid;
+        gap: 4px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
+      .route-panel input {
+        border: 1px solid #c7d6e6;
+        border-radius: 6px;
+        padding: 7px;
+        font-size: 0.85rem;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .actions button {
+        border: 0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 0.82rem;
+        cursor: pointer;
+      }
+
+      .btn-primary {
+        background: #22577a;
+        color: #fff;
+      }
+
+      .btn-secondary {
+        background: #eef4fb;
+        color: #21415f;
+      }
+
+      .route-meta {
+        font-size: 0.8rem;
+        color: var(--muted);
+        line-height: 1.5;
+        min-height: 18px;
+      }
+
       .legend {
         position: absolute;
         right: 20px;
@@ -87,6 +157,27 @@
         border-radius: 3px;
         margin-right: 6px;
       }
+
+      @media (max-width: 640px) {
+        #map {
+          height: calc(100vh - 58px);
+        }
+
+        .header {
+          padding: 10px 12px;
+        }
+
+        .route-panel {
+          left: 10px;
+          top: 10px;
+          width: calc(100% - 20px);
+        }
+
+        .legend {
+          right: 10px;
+          bottom: 10px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -96,6 +187,37 @@
         <div id="status" class="status">Loading data...</div>
       </header>
       <main id="map" aria-label="Flood risk map">
+        <form id="route-form" class="route-panel" autocomplete="off">
+          <h2>Flood-Aware Route Planner</h2>
+          <div class="coord-row">
+            <label>
+              Start latitude
+              <input id="start-lat" type="number" step="any" required />
+            </label>
+            <label>
+              Start longitude
+              <input id="start-lon" type="number" step="any" required />
+            </label>
+          </div>
+          <div class="coord-row">
+            <label>
+              End latitude
+              <input id="end-lat" type="number" step="any" required />
+            </label>
+            <label>
+              End longitude
+              <input id="end-lon" type="number" step="any" required />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="pick-start" class="btn-secondary" type="button">Pick Start On Map</button>
+            <button id="pick-end" class="btn-secondary" type="button">Pick End On Map</button>
+            <button class="btn-primary" type="submit">Compute Safe Route</button>
+            <button id="clear-route" class="btn-secondary" type="button">Clear Route</button>
+          </div>
+          <div id="route-meta" class="route-meta"></div>
+        </form>
+
         <div class="legend">
           <div><span class="swatch" style="background:#d62828"></span>High</div>
           <div><span class="swatch" style="background:#f77f00"></span>Medium</div>
@@ -111,6 +233,16 @@
     ></script>
     <script>
       const statusEl = document.getElementById("status");
+      const routeMetaEl = document.getElementById("route-meta");
+
+      const routeForm = document.getElementById("route-form");
+      const startLatInput = document.getElementById("start-lat");
+      const startLonInput = document.getElementById("start-lon");
+      const endLatInput = document.getElementById("end-lat");
+      const endLonInput = document.getElementById("end-lon");
+      const pickStartBtn = document.getElementById("pick-start");
+      const pickEndBtn = document.getElementById("pick-end");
+      const clearRouteBtn = document.getElementById("clear-route");
 
       const map = L.map("map", {
         zoomControl: true,
@@ -128,25 +260,76 @@
 
       tiles.addTo(map);
 
+      let floodLayer = null;
+      let routeLayer = null;
+      let startMarker = null;
+      let endMarker = null;
+      let pickMode = null;
+
+      startLatInput.value = "46.0569";
+      startLonInput.value = "14.5058";
+      endLatInput.value = "45.8150";
+      endLonInput.value = "15.9819";
+
       function colorFor(feature) {
         const level = feature.properties?.risk_level;
         const colors = { high: "#d62828", medium: "#f77f00", low: "#2a9d8f" };
         return colors[level] || "#22577a";
       }
 
-      function resolveGeoJsonUrl() {
+      function resolveApiUrl(pathname) {
         const params = new URLSearchParams(window.location.search);
         const apiBase = params.get("api_base");
 
         if (apiBase) {
-          return new URL("/geojson/live", apiBase).toString();
+          return new URL(pathname, apiBase).toString();
         }
 
         if (window.location.protocol === "file:") {
-          return "http://127.0.0.1:8000/geojson/live";
+          return `http://127.0.0.1:8000${pathname}`;
         }
 
-        return new URL("/geojson/live", window.location.origin).toString();
+        return new URL(pathname, window.location.origin).toString();
+      }
+
+      function setMarker(kind, lat, lon) {
+        const point = [lat, lon];
+        if (kind === "start") {
+          if (startMarker) {
+            map.removeLayer(startMarker);
+          }
+          startMarker = L.circleMarker(point, {
+            radius: 6,
+            color: "#22577a",
+            weight: 2,
+            fillColor: "#fff",
+            fillOpacity: 1,
+          })
+            .addTo(map)
+            .bindTooltip("Start", { permanent: false });
+          return;
+        }
+
+        if (endMarker) {
+          map.removeLayer(endMarker);
+        }
+        endMarker = L.circleMarker(point, {
+          radius: 6,
+          color: "#3a5a40",
+          weight: 2,
+          fillColor: "#fff",
+          fillOpacity: 1,
+        })
+          .addTo(map)
+          .bindTooltip("End", { permanent: false });
+      }
+
+      function updateStatusForPick() {
+        if (pickMode === "start") {
+          statusEl.textContent = "Click map to set start point";
+        } else if (pickMode === "end") {
+          statusEl.textContent = "Click map to set end point";
+        }
       }
 
       function onEachFeature(feature, layer) {
@@ -159,8 +342,141 @@
         );
       }
 
+      map.on("click", (event) => {
+        if (!pickMode) {
+          return;
+        }
+
+        const lat = Number(event.latlng.lat.toFixed(6));
+        const lon = Number(event.latlng.lng.toFixed(6));
+
+        if (pickMode === "start") {
+          startLatInput.value = String(lat);
+          startLonInput.value = String(lon);
+          setMarker("start", lat, lon);
+          statusEl.textContent = "Start point selected";
+        } else {
+          endLatInput.value = String(lat);
+          endLonInput.value = String(lon);
+          setMarker("end", lat, lon);
+          statusEl.textContent = "End point selected";
+        }
+
+        pickMode = null;
+      });
+
+      pickStartBtn.addEventListener("click", () => {
+        pickMode = "start";
+        updateStatusForPick();
+      });
+
+      pickEndBtn.addEventListener("click", () => {
+        pickMode = "end";
+        updateStatusForPick();
+      });
+
+      clearRouteBtn.addEventListener("click", () => {
+        if (routeLayer) {
+          map.removeLayer(routeLayer);
+          routeLayer = null;
+        }
+        routeMetaEl.textContent = "";
+      });
+
+      function parseCoordinate(input) {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) {
+          throw new Error("All coordinates must be valid numbers");
+        }
+        return value;
+      }
+
+      function formatDistanceMeters(meters) {
+        if (!Number.isFinite(meters)) {
+          return "n/a";
+        }
+        return `${(meters / 1000).toFixed(1)} km`;
+      }
+
+      function formatDurationSeconds(seconds) {
+        if (!Number.isFinite(seconds)) {
+          return "n/a";
+        }
+        const mins = Math.round(seconds / 60);
+        return `${mins} min`;
+      }
+
+      async function computeRoute() {
+        const payload = {
+          start: {
+            lat: parseCoordinate(startLatInput),
+            lon: parseCoordinate(startLonInput),
+          },
+          end: {
+            lat: parseCoordinate(endLatInput),
+            lon: parseCoordinate(endLonInput),
+          },
+        };
+
+        setMarker("start", payload.start.lat, payload.start.lon);
+        setMarker("end", payload.end.lat, payload.end.lon);
+
+        const routeUrl = resolveApiUrl("/route/avoid-flood-high-risk");
+        statusEl.textContent = "Computing flood-aware route...";
+
+        const response = await fetch(routeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+        const routeGeoJson = data.route;
+        const features = routeGeoJson?.features || [];
+        if (features.length === 0) {
+          throw new Error("Route API returned no features");
+        }
+
+        if (routeLayer) {
+          map.removeLayer(routeLayer);
+        }
+
+        routeLayer = L.geoJSON(routeGeoJson, {
+          style: {
+            color: "#1d3557",
+            weight: 5,
+            opacity: 0.9,
+          },
+        }).addTo(map);
+
+        const routeBounds = routeLayer.getBounds();
+        if (routeBounds.isValid()) {
+          map.fitBounds(routeBounds.pad(0.2));
+        }
+
+        const summary = features[0]?.properties?.summary || {};
+        routeMetaEl.textContent = `Distance: ${formatDistanceMeters(summary.distance)} | Duration: ${formatDurationSeconds(
+          summary.duration,
+        )} | High-risk polygons: ${data.high_risk_polygon_count} | Avoidance enabled: ${data.using_avoid_polygons}`;
+        statusEl.textContent = "Flood-aware route computed";
+      }
+
+      routeForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await computeRoute();
+        } catch (error) {
+          statusEl.textContent = `Route request failed: ${error.message}`;
+        }
+      });
+
       async function loadLayer() {
-        const geojsonUrl = resolveGeoJsonUrl();
+        const geojsonUrl = resolveApiUrl("/geojson/live");
         try {
           const response = await fetch(geojsonUrl);
           if (!response.ok) {
@@ -174,7 +490,7 @@
             return;
           }
 
-          const geoLayer = L.geoJSON(data, {
+          floodLayer = L.geoJSON(data, {
             style: (feature) => {
               const color = colorFor(feature);
               return {
@@ -187,7 +503,7 @@
             onEachFeature,
           }).addTo(map);
 
-          const bounds = geoLayer.getBounds();
+          const bounds = floodLayer.getBounds();
           if (bounds.isValid()) {
             map.fitBounds(bounds.pad(0.2));
           }

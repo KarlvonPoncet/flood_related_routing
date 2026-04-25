@@ -3,6 +3,10 @@ services:
     build:
       context: .
     image: flood-related-routing:latest
+    env_file:
+      - .env
+    environment:
+      CDSAPI_RC: /home/appuser/.cdsapirc
     ports:
       - "8000:8000"
     volumes:
@@ -17,6 +21,10 @@ services:
     image: flood-related-routing:latest
     profiles:
       - scheduler
+    env_file:
+      - .env
+    environment:
+      CDSAPI_RC: /home/appuser/.cdsapirc
     volumes:
       - ./data:/app/data
       - ${HOME}/.cdsapirc:/home/appuser/.cdsapirc:ro

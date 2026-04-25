@@ -6,6 +6,7 @@ tmp/
 
 # Local secrets
 .cdsapirc
+.env
 
 # Python caches/tooling
 .pytest_cache/
