@@ -111,6 +111,14 @@ Optional flags:
 - `--interval-seconds 3600`: set custom frequency in seconds.
 - `--skip-initial-run`: wait one full interval before the first run.
 
+## Run Tests
+
+```bash
+. .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
 ## Behavior
 
 `POST /artifact?target=<path>&source=<source>`
@@ -122,5 +130,29 @@ Optional flags:
 
 - Returns `data/processed/live_flood.geojson`.
 - If the file is missing, ingestion runs automatically and then returns GeoJSON.
+
+`POST /route/avoid-flood-high-risk`
+
+- Computes a driving route via OpenRouteService from `start` to `end`.
+- Extracts flood polygons with `risk_level == "high"` from the artifact and passes them as ORS `avoid_polygons`.
+- If the artifact does not exist, ingestion runs automatically first.
+- Requires `ORS_API_KEY` in the API process environment.
+
+Example request:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/route/avoid-flood-high-risk" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start": { "lat": 46.0569, "lon": 14.5058 },
+    "end": { "lat": 45.8150, "lon": 15.9819 }
+  }'
+```
+
+For Docker Compose, pass the key when starting:
+
+```bash
+ORS_API_KEY=your_key_here docker compose up --build api
+```
 
 Current ingestion implementation is a placeholder in `api/ingestion.py`. Replace `ingest_file()` with your real ingestion flow.

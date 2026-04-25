@@ -8,9 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from api.ingestion import ingest_file
+from api.routing import router as routing_router
 
 
 app = FastAPI(title="Ingestion API")
+app.include_router(routing_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
