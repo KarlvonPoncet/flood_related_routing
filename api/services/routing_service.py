@@ -154,7 +154,10 @@ def compute_flood_aware_route(
     unroutable_error_fn: Callable[[HTTPException], bool],
 ) -> dict[str, Any]:
     geometries = load_geometries_fn(artifact_path)
+    active_geometry_count = len(geometries)
     avoid_polygons = build_avoid_fn(geometries)
+    if avoid_polygons is None:
+        active_geometry_count = 0
     route_warnings: list[str] = []
     radiuses: list[float] | None = None
 
@@ -169,7 +172,26 @@ def compute_flood_aware_route(
             break
         except HTTPException as exc:
             if avoid_polygons is not None and area_error_fn(exc):
+                next_geometry_count = active_geometry_count // 2
+                next_avoid_polygons: dict[str, Any] | None = None
+
+                while next_geometry_count > 0:
+                    candidate = build_avoid_fn(geometries[:next_geometry_count])
+                    if candidate is not None:
+                        next_avoid_polygons = candidate
+                        break
+                    next_geometry_count //= 2
+
+                if next_avoid_polygons is not None:
+                    active_geometry_count = next_geometry_count
+                    avoid_polygons = next_avoid_polygons
+                    route_warnings.append(
+                        f"ORS rejected avoid_polygons area; retried with {active_geometry_count} nearest polygons."
+                    )
+                    continue
+
                 avoid_polygons = None
+                active_geometry_count = 0
                 route_warnings.append(
                     "ORS rejected avoid_polygons due to area limit; returned route without flood avoidance polygons."
                 )
@@ -187,6 +209,7 @@ def compute_flood_aware_route(
     response = {
         "artifact_path": str(artifact_path),
         "high_risk_polygon_count": len(geometries),
+        "avoidance_polygon_count": active_geometry_count,
         "using_avoid_polygons": avoid_polygons is not None,
         "using_custom_radiuses": radiuses is not None,
         "route": route,

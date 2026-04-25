@@ -90,10 +90,11 @@ export function createRoutePlanner({ mapController, statusEl, routeMetaEl, formE
 
       const summary = data.route?.features?.[0]?.properties?.summary || {};
       const warningSuffix = data.warning ? ` | Warning: ${data.warning}` : "";
+      const avoidanceCount = data.avoidance_polygon_count ?? 0;
 
       routeMetaEl.textContent = `Distance: ${formatDistanceMeters(summary.distance)} | Duration: ${formatDurationSeconds(
         summary.duration,
-      )} | High-risk polygons: ${data.high_risk_polygon_count} | Avoidance enabled: ${data.using_avoid_polygons} | Custom radiuses: ${data.using_custom_radiuses}${warningSuffix}`;
+      )} | High-risk polygons: ${data.high_risk_polygon_count} | Avoidance polygons used: ${avoidanceCount} | Avoidance enabled: ${data.using_avoid_polygons} | Custom radiuses: ${data.using_custom_radiuses}${warningSuffix}`;
       statusEl.textContent = "Flood-aware route computed";
     } catch (error) {
       statusEl.textContent = `Route request failed: ${error.message}`;

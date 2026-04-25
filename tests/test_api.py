@@ -260,10 +260,56 @@ def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(
     assert calls[1]["avoid_polygons"] is None
     assert calls[0]["radiuses"] is None
     assert calls[1]["radiuses"] is None
+    assert payload["avoidance_polygon_count"] == 0
     assert payload["using_avoid_polygons"] is False
     assert payload["using_custom_radiuses"] is False
     assert "warning" in payload
     assert payload["route"]["type"] == "FeatureCollection"
+
+
+def test_route_endpoint_retries_with_reduced_polygons_on_area_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object()] * 200)
+
+    def _build_avoid(geoms):
+        if not geoms:
+            return None
+        return {"type": "Polygon", "count": len(geoms)}
+
+    monkeypatch.setattr(routing_module, "_build_avoid_polygons", _build_avoid)
+
+    calls: list[int] = []
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, radiuses
+        count = avoid_polygons.get("count") if avoid_polygons else 0
+        calls.append(count)
+        if count > 50:
+            raise HTTPException(
+                status_code=502,
+                detail='OpenRouteService request failed (400): {"error":{"code":2003,"message":"The area of a polygon to avoid must not exceed 2.0E8 square meters."}}',
+            )
+        return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+    payload = routing_module.route_avoid_flood_high_risk(req)
+
+    assert calls == [200, 100, 50]
+    assert payload["high_risk_polygon_count"] == 200
+    assert payload["avoidance_polygon_count"] == 50
+    assert payload["using_avoid_polygons"] is True
+    assert "retried with 100 nearest polygons" in payload["warning"]
+    assert "retried with 50 nearest polygons" in payload["warning"]
 
 
 def test_route_endpoint_retries_with_custom_radiuses_when_ors_reports_unroutable_point(
