@@ -33,7 +33,7 @@ def health() -> dict[str, str]:
 def frontend() -> FileResponse:
     if not FRONTEND_INDEX.exists():
         raise HTTPException(status_code=404, detail="Frontend not found")
-    return FileResponse(path=FRONTEND_INDEX, filename="index.html")
+    return FileResponse(path=FRONTEND_INDEX, media_type="text/html")
 
 
 @app.get("/geojson/live")
