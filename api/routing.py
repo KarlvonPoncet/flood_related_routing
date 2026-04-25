@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -11,16 +10,17 @@ from pydantic import BaseModel, Field
 from shapely.geometry import GeometryCollection, mapping, shape
 from shapely.ops import unary_union
 
+from api.config import get_settings
 from api.ingestion import ingest_file
 
 
 router = APIRouter()
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_ARTIFACT = ROOT_DIR / "data/processed/live_flood.geojson"
-ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car/geojson"
-MAX_AVOID_POLYGONS = 200
-SIMPLIFY_TOLERANCE_DEGREES = 0.005
+SETTINGS = get_settings()
+DEFAULT_ARTIFACT = SETTINGS.default_artifact
+ORS_DIRECTIONS_URL = SETTINGS.ors_directions_url
+MAX_AVOID_POLYGONS = SETTINGS.max_avoid_polygons
+SIMPLIFY_TOLERANCE_DEGREES = SETTINGS.simplify_tolerance_degrees
 
 
 class Coordinate(BaseModel):
@@ -98,7 +98,7 @@ def _build_avoid_polygons(geometries: list[Any]) -> dict[str, Any] | None:
 
 
 def _call_openrouteservice(*, start: Coordinate, end: Coordinate, avoid_polygons: dict[str, Any] | None) -> dict[str, Any]:
-    api_key = os.getenv("ORS_API_KEY")
+    api_key = get_settings().ors_api_key
     if not api_key:
         raise HTTPException(status_code=500, detail="Missing ORS_API_KEY environment variable")
 
@@ -114,7 +114,7 @@ def _call_openrouteservice(*, start: Coordinate, end: Coordinate, avoid_polygons
 
     payload = json.dumps(body).encode("utf-8")
     req = request.Request(
-        ORS_DIRECTIONS_URL,
+        get_settings().ors_directions_url,
         data=payload,
         method="POST",
         headers={
@@ -142,6 +142,13 @@ def _call_openrouteservice(*, start: Coordinate, end: Coordinate, avoid_polygons
         raise HTTPException(status_code=502, detail=f"Invalid OpenRouteService response: {exc}") from exc
 
 
+def _is_ors_avoid_polygon_area_error(exc: HTTPException) -> bool:
+    if exc.status_code != 502:
+        return False
+    detail = str(exc.detail)
+    return "\"code\":2003" in detail and "polygon to avoid" in detail
+
+
 @router.post("/route/avoid-flood-high-risk")
 def route_avoid_flood_high_risk(req: RouteAvoidFloodsRequest) -> dict[str, Any]:
     artifact_path = Path(req.artifact_path) if req.artifact_path else DEFAULT_ARTIFACT
@@ -151,11 +158,26 @@ def route_avoid_flood_high_risk(req: RouteAvoidFloodsRequest) -> dict[str, Any]:
 
     geometries = _load_high_risk_geometries(artifact_path)
     avoid_polygons = _build_avoid_polygons(geometries)
-    ors_response = _call_openrouteservice(start=req.start, end=req.end, avoid_polygons=avoid_polygons)
+    route_warning: str | None = None
 
-    return {
+    try:
+        ors_response = _call_openrouteservice(start=req.start, end=req.end, avoid_polygons=avoid_polygons)
+    except HTTPException as exc:
+        if avoid_polygons is not None and _is_ors_avoid_polygon_area_error(exc):
+            ors_response = _call_openrouteservice(start=req.start, end=req.end, avoid_polygons=None)
+            avoid_polygons = None
+            route_warning = (
+                "ORS rejected avoid_polygons due to area limit; returned route without flood avoidance polygons."
+            )
+        else:
+            raise
+
+    response = {
         "artifact_path": str(artifact_path),
         "high_risk_polygon_count": len(geometries),
         "using_avoid_polygons": avoid_polygons is not None,
         "route": ors_response,
     }
+    if route_warning:
+        response["warning"] = route_warning
+    return response

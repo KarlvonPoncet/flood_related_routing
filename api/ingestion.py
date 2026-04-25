@@ -10,17 +10,19 @@ import numpy as np
 import xarray as xr
 from shapely.geometry import Point
 
+from api.config import get_settings
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-OUT = ROOT_DIR / "data/processed/live_flood.geojson"
+SETTINGS = get_settings()
+ROOT_DIR = SETTINGS.root_dir
+OUT = SETTINGS.default_artifact
 
-RAW_DIR = ROOT_DIR / "data/raw/glofas"
-ZIP_PATH = RAW_DIR / "glofas_slovenia.zip"
-EXTRACT_DIR = RAW_DIR / "extracted"
-EU_MIN_LON = -25.0
-EU_MAX_LON = 45.0
-EU_MIN_LAT = 34.0
-EU_MAX_LAT = 72.0
+RAW_DIR = SETTINGS.raw_dir
+ZIP_PATH = SETTINGS.zip_path
+EXTRACT_DIR = SETTINGS.extract_dir
+EU_MIN_LON = SETTINGS.eu_min_lon
+EU_MAX_LON = SETTINGS.eu_max_lon
+EU_MIN_LAT = SETTINGS.eu_min_lat
+EU_MAX_LAT = SETTINGS.eu_max_lat
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 RAW_DIR.mkdir(parents=True, exist_ok=True)

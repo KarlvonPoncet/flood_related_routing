@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from api.config import get_settings
 from api.ingestion import ingest_file
 from api.routing import router as routing_router
 
@@ -19,9 +20,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_ARTIFACT = ROOT_DIR / "data/processed/live_flood.geojson"
-FRONTEND_INDEX = ROOT_DIR / "frontend/index.html"
+SETTINGS = get_settings()
+DEFAULT_ARTIFACT = SETTINGS.default_artifact
+FRONTEND_INDEX = SETTINGS.frontend_index
 
 
 @app.get("/health")
