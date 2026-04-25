@@ -13,6 +13,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("FRONTEND_INDEX_PATH", "/tmp/custom/index.html")
     monkeypatch.setenv("ORS_API_KEY", "secret-key")
     monkeypatch.setenv("ORS_DIRECTIONS_URL", "https://remote.example/route")
+    monkeypatch.setenv("ORS_REQUEST_TIMEOUT_SECONDS", "7.5")
     monkeypatch.setenv("MAX_AVOID_POLYGONS", "123")
     monkeypatch.setenv("SIMPLIFY_TOLERANCE_DEGREES", "0.25")
     monkeypatch.setenv("EU_MIN_LAT", "10.0")
@@ -25,6 +26,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.frontend_index == Path("/tmp/custom/index.html")
     assert settings.ors_api_key == "secret-key"
     assert settings.ors_directions_url == "https://remote.example/route"
+    assert settings.ors_request_timeout_seconds == 7.5
     assert settings.max_avoid_polygons == 123
     assert settings.simplify_tolerance_degrees == 0.25
     assert settings.eu_min_lat == 10.0

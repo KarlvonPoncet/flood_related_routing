@@ -22,6 +22,7 @@ class Settings:
     ors_local_directions_url: str | None
     ors_require_api_key: bool
     ors_directions_url: str
+    ors_request_timeout_seconds: float
     max_avoid_polygons: int
     simplify_tolerance_degrees: float
     ors_fallback_radius_meters: float
@@ -102,6 +103,7 @@ def get_settings() -> Settings:
         ors_local_directions_url=local_ors_url,
         ors_require_api_key=ors_require_api_key,
         ors_directions_url=active_ors_url,
+        ors_request_timeout_seconds=_env_float("ORS_REQUEST_TIMEOUT_SECONDS", 12.0),
         max_avoid_polygons=_env_int("MAX_AVOID_POLYGONS", 200),
         simplify_tolerance_degrees=_env_float("SIMPLIFY_TOLERANCE_DEGREES", 0.005),
         ors_fallback_radius_meters=_env_float("ORS_FALLBACK_RADIUS_METERS", 2000.0),

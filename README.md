@@ -63,6 +63,9 @@ Optional auth behavior override:
 ```bash
 # default is false when ORS_USE_LOCAL=true, true otherwise
 ORS_REQUIRE_API_KEY=false
+
+# Timeout (seconds) for each ORS HTTP request from API container.
+ORS_REQUEST_TIMEOUT_SECONDS=12
 ```
 
 Routing endpoint selection logic:

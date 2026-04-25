@@ -18,6 +18,13 @@ Coverage includes:
 - ORS fallback behavior for error codes `2003` and `2010`
 - midpoint-nearest polygon selection integration (200 limit)
 
+### API Integration Tests (`tests/test_api.py`)
+
+Coverage includes:
+- Route endpoint + routing service integration for `/route/avoid-flood-high-risk` timeout handling
+- `502` timeout diagnostics include ORS host/port reachability hint
+- ORS timeout value propagation from `ORS_REQUEST_TIMEOUT_SECONDS` into HTTP client call
+
 ### Ingestion Unit Tests (`tests/test_ingestion.py`)
 
 Coverage includes:

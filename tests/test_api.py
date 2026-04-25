@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib import error
 
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from shapely.geometry import Point
 
+from api import config as config_module
 from api import app as app_module
 from api import routing as routing_module
+from api.services import routing_service
 
 
 def _json_response_payload(resp: JSONResponse) -> dict:
@@ -385,6 +388,242 @@ def test_route_endpoint_re_raises_non_retriable_ors_error(
 
     assert exc_info.value.status_code == 502
     assert '"code":2099' in str(exc_info.value.detail)
+
+
+def test_route_endpoint_logs_timing_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object(), object(), object()])
+    monkeypatch.setattr(
+        routing_module,
+        "_build_avoid_polygons",
+        lambda geoms: {"type": "Polygon", "count": len(geoms)} if geoms else None,
+    )
+    monkeypatch.setattr(
+        routing_module,
+        "_call_openrouteservice",
+        lambda *, start, end, avoid_polygons, radiuses=None: {
+            "type": "FeatureCollection",
+            "features": [{"type": "Feature"}],
+        },
+    )
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+
+    with caplog.at_level("INFO"):
+        payload = routing_module.route_avoid_flood_high_risk(req)
+
+    assert payload["route"]["type"] == "FeatureCollection"
+    logs = "\n".join(caplog.messages)
+    assert "route_request_started" in logs
+    assert "route_request_prepared" in logs
+    assert "high_risk_total=3 selected_for_avoidance=3" in logs
+    assert "route_request_succeeded" in logs
+    assert "total_ms=" in logs
+
+
+def test_route_endpoint_logs_failure_timing_on_ors_502(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object()])
+    monkeypatch.setattr(
+        routing_module,
+        "_build_avoid_polygons",
+        lambda geoms: {"type": "Polygon", "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.0, 46.1], [14.0, 46.0]]]},
+    )
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, avoid_polygons, radiuses
+        raise HTTPException(status_code=502, detail='OpenRouteService request failed (400): {"error":{"code":2099}}')
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+
+    with caplog.at_level("INFO"):
+        with pytest.raises(HTTPException):
+            routing_module.route_avoid_flood_high_risk(req)
+
+    logs = "\n".join(caplog.messages)
+    assert "route_request_started" in logs
+    assert "route_request_failed" in logs
+    assert "route_ms=" in logs
+    assert "total_ms=" in logs
+
+
+def test_route_endpoint_timeout_surfaces_reachability_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORS_USE_LOCAL", "true")
+    monkeypatch.setenv("ORS_REQUIRE_API_KEY", "false")
+    monkeypatch.setenv(
+        "ORS_LOCAL_DIRECTIONS_URL",
+        "http://host.docker.internal:8080/ors/v2/directions/driving-car/geojson",
+    )
+    monkeypatch.setenv("ORS_REQUEST_TIMEOUT_SECONDS", "8")
+    config_module.reload_settings()
+    try:
+        artifact = tmp_path / "flood.geojson"
+        artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+        monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+
+        def _raise_timeout(req, timeout):
+            del req, timeout
+            raise error.URLError(TimeoutError("timed out"))
+
+        monkeypatch.setattr(routing_service.request, "urlopen", _raise_timeout)
+
+        req = routing_module.RouteAvoidFloodsRequest(
+            start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+            end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            routing_module.route_avoid_flood_high_risk(req)
+
+        assert exc_info.value.status_code == 502
+        detail = str(exc_info.value.detail)
+        assert "timed out after 8.0s" in detail
+        assert "host.docker.internal:8080" in detail
+        assert "reachable from the API container" in detail
+    finally:
+        config_module.reload_settings()
+
+
+def test_route_endpoint_timeout_uses_configured_ors_timeout_seconds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORS_USE_LOCAL", "true")
+    monkeypatch.setenv("ORS_REQUIRE_API_KEY", "false")
+    monkeypatch.setenv(
+        "ORS_LOCAL_DIRECTIONS_URL",
+        "http://host.docker.internal:8080/ors/v2/directions/driving-car/geojson",
+    )
+    monkeypatch.setenv("ORS_REQUEST_TIMEOUT_SECONDS", "3.5")
+    config_module.reload_settings()
+    try:
+        artifact = tmp_path / "flood.geojson"
+        artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+        monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+        observed: dict[str, float] = {}
+
+        def _raise_timeout(req, timeout):
+            del req
+            observed["timeout"] = timeout
+            raise error.URLError(TimeoutError("timed out"))
+
+        monkeypatch.setattr(routing_service.request, "urlopen", _raise_timeout)
+
+        req = routing_module.RouteAvoidFloodsRequest(
+            start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+            end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            routing_module.route_avoid_flood_high_risk(req)
+
+        assert exc_info.value.status_code == 502
+        assert observed["timeout"] == 3.5
+        assert "timed out after 3.5s" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
+
+
+def test_route_endpoint_retries_without_avoid_polygons_on_distance_limit_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object(), object()])
+
+    avoid = {
+        "type": "Polygon",
+        "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.1, 46.1], [14.0, 46.0]]],
+    }
+    monkeypatch.setattr(routing_module, "_build_avoid_polygons", lambda geoms: avoid if geoms else None)
+
+    calls: list[dict] = []
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, radiuses
+        calls.append({"avoid_polygons": avoid_polygons})
+        if avoid_polygons is not None:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    'OpenRouteService request failed (400): {"error":{"code":2004,'
+                    '"message":"Request parameters exceed the server configuration limits. '
+                    'The approximated route distance must not be greater than 100000.0 meters."}}'
+                ),
+            )
+        return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+    payload = routing_module.route_avoid_flood_high_risk(req)
+
+    assert len(calls) == 2
+    assert calls[0]["avoid_polygons"] is not None
+    assert calls[1]["avoid_polygons"] is None
+    assert payload["using_avoid_polygons"] is False
+    assert payload["avoidance_polygon_count"] == 0
+    assert "max distance constraint" in payload["warning"]
+
+
+def test_route_endpoint_returns_422_when_route_exceeds_ors_distance_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [])
+    monkeypatch.setattr(routing_module, "_build_avoid_polygons", lambda geoms: None)
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, avoid_polygons, radiuses
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                'OpenRouteService request failed (400): {"error":{"code":2004,'
+                '"message":"Request parameters exceed the server configuration limits. '
+                'The approximated route distance must not be greater than 100000.0 meters."}}'
+            ),
+        )
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        routing_module.route_avoid_flood_high_risk(req)
+
+    assert exc_info.value.status_code == 422
+    assert "maximum distance (100000 meters)" in str(exc_info.value.detail)
 
 
 def test_route_endpoint_selects_nearest_200_polygons_to_midpoint(

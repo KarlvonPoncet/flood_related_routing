@@ -43,6 +43,10 @@ Headers:
 2. retry route call
 3. emit warning and `using_custom_radiuses=true`
 
+- `2004` max distance error:
+1. if avoid polygons are active, retry once without avoid polygons
+2. if still `2004`, return HTTP `422` with guidance to choose closer points or increase ORS limit
+
 - Other ORS failures propagate as HTTP `502`.
 
 ## Response Semantics

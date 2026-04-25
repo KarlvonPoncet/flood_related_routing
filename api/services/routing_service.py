@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
+from time import perf_counter
 from typing import Any, Callable, Protocol
 from urllib import error, request
 
@@ -10,6 +15,8 @@ from shapely.geometry import GeometryCollection, mapping, shape
 from shapely.ops import unary_union
 
 from api.config import get_settings
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CoordinateLike(Protocol):
@@ -104,25 +111,47 @@ def call_openrouteservice(
     if avoid_polygons is not None:
         base_body["options"] = {"avoid_polygons": avoid_polygons}
 
+    request_started = perf_counter()
+    LOGGER.info(
+        "ors_request_started url=%s timeout_seconds=%.1f has_avoid_polygons=%s has_radiuses=%s",
+        settings.ors_directions_url,
+        settings.ors_request_timeout_seconds,
+        avoid_polygons is not None,
+        radiuses is not None,
+    )
+
     try:
         response_payload = _post_ors_json(
             url=settings.ors_directions_url,
             body=base_body,
             headers=_ors_headers(api_key),
+            timeout_seconds=settings.ors_request_timeout_seconds,
         )
     except HTTPException as exc:
         if settings.ors_use_local and _is_ors_unsupported_format_error(exc):
             local_json_url = _geojson_to_json_url(settings.ors_directions_url)
             fallback_body = dict(base_body)
             fallback_body["geometry_format"] = "geojson"
+            LOGGER.warning(
+                "ors_request_retrying_json_endpoint url=%s fallback_url=%s",
+                settings.ors_directions_url,
+                local_json_url,
+            )
             response_payload = _post_ors_json(
                 url=local_json_url,
                 body=fallback_body,
                 headers=_ors_headers(api_key),
+                timeout_seconds=settings.ors_request_timeout_seconds,
             )
         else:
+            LOGGER.warning(
+                "ors_request_failed duration_ms=%.1f detail=%s",
+                (perf_counter() - request_started) * 1000,
+                exc.detail,
+            )
             raise
 
+    LOGGER.info("ors_request_succeeded duration_ms=%.1f", (perf_counter() - request_started) * 1000)
     return _normalize_ors_route_payload(response_payload)
 
 
@@ -140,6 +169,13 @@ def is_ors_unroutable_point_error(exc: HTTPException) -> bool:
     return "\"code\":2010" in detail and "routable point" in detail
 
 
+def is_ors_distance_limit_error(exc: HTTPException) -> bool:
+    if exc.status_code != 502:
+        return False
+    detail = str(exc.detail)
+    return "\"code\":2004" in detail and "must not be greater than" in detail
+
+
 def _is_ors_unsupported_format_error(exc: HTTPException) -> bool:
     if exc.status_code != 502:
         return False
@@ -153,7 +189,13 @@ def _geojson_to_json_url(url: str) -> str:
     return url
 
 
-def _post_ors_json(*, url: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+def _post_ors_json(
+    *,
+    url: str,
+    body: dict[str, Any],
+    headers: dict[str, str],
+    timeout_seconds: float,
+) -> dict[str, Any]:
     payload = json.dumps(body).encode("utf-8")
     req = request.Request(
         url,
@@ -163,7 +205,7 @@ def _post_ors_json(*, url: str, body: dict[str, Any], headers: dict[str, str]) -
     )
 
     try:
-        with request.urlopen(req, timeout=45) as response:
+        with request.urlopen(req, timeout=timeout_seconds) as response:
             response_bytes = response.read()
     except error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
@@ -171,6 +213,19 @@ def _post_ors_json(*, url: str, body: dict[str, Any], headers: dict[str, str]) -
             status_code=502,
             detail=f"OpenRouteService request failed ({exc.code}): {error_body}",
         ) from exc
+    except error.URLError as exc:
+        if _is_timeout_error(exc):
+            parsed = urlparse(url)
+            host_port = parsed.netloc or parsed.path
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "OpenRouteService request timed out "
+                    f"after {timeout_seconds:.1f}s while connecting to {host_port}. "
+                    "Verify ORS is running and reachable from the API container."
+                ),
+            ) from exc
+        raise HTTPException(status_code=502, detail=f"OpenRouteService request failed: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"OpenRouteService request failed: {exc}") from exc
 
@@ -182,6 +237,25 @@ def _post_ors_json(*, url: str, body: dict[str, Any], headers: dict[str, str]) -
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=502, detail="Invalid OpenRouteService response: expected JSON object")
     return parsed
+
+
+def _is_timeout_error(exc: error.URLError) -> bool:
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, TimeoutError):
+        return True
+    if isinstance(reason, socket.timeout):
+        return True
+    return "timed out" in str(exc).lower()
+
+
+def _extract_ors_distance_limit_meters(detail: str) -> float | None:
+    match = re.search(r"must not be greater than ([0-9.]+) meters", detail)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
 
 
 def _normalize_ors_route_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -241,6 +315,7 @@ def compute_flood_aware_route(
     fallback_radius_meters: float,
     area_error_fn: Callable[[HTTPException], bool],
     unroutable_error_fn: Callable[[HTTPException], bool],
+    distance_error_fn: Callable[[HTTPException], bool],
 ) -> dict[str, Any]:
     geometries = load_geometries_fn(artifact_path)
     active_geometry_count = len(geometries)
@@ -249,8 +324,18 @@ def compute_flood_aware_route(
         active_geometry_count = 0
     route_warnings: list[str] = []
     radiuses: list[float] | None = None
+    attempt = 0
 
     while True:
+        attempt += 1
+        attempt_started = perf_counter()
+        LOGGER.info(
+            "flood_route_attempt_started attempt=%d avoid_polygons=%s radiuses=%s active_polygons=%d",
+            attempt,
+            avoid_polygons is not None,
+            radiuses is not None,
+            active_geometry_count,
+        )
         try:
             route = call_ors_fn(
                 start=start,
@@ -258,8 +343,20 @@ def compute_flood_aware_route(
                 avoid_polygons=avoid_polygons,
                 radiuses=radiuses,
             )
+            LOGGER.info(
+                "flood_route_attempt_succeeded attempt=%d duration_ms=%.1f",
+                attempt,
+                (perf_counter() - attempt_started) * 1000,
+            )
             break
         except HTTPException as exc:
+            LOGGER.warning(
+                "flood_route_attempt_failed attempt=%d duration_ms=%.1f status=%s detail=%s",
+                attempt,
+                (perf_counter() - attempt_started) * 1000,
+                exc.status_code,
+                exc.detail,
+            )
             if avoid_polygons is not None and area_error_fn(exc):
                 next_geometry_count = active_geometry_count // 2
                 next_avoid_polygons: dict[str, Any] | None = None
@@ -277,6 +374,10 @@ def compute_flood_aware_route(
                     route_warnings.append(
                         f"ORS rejected avoid_polygons area; retried with {active_geometry_count} nearest polygons."
                     )
+                    LOGGER.warning(
+                        "flood_route_retrying_with_fewer_polygons next_active_polygons=%d",
+                        active_geometry_count,
+                    )
                     continue
 
                 avoid_polygons = None
@@ -284,6 +385,7 @@ def compute_flood_aware_route(
                 route_warnings.append(
                     "ORS rejected avoid_polygons due to area limit; returned route without flood avoidance polygons."
                 )
+                LOGGER.warning("flood_route_retrying_without_avoid_polygons")
                 continue
 
             if radiuses is None and unroutable_error_fn(exc):
@@ -291,8 +393,38 @@ def compute_flood_aware_route(
                 route_warnings.append(
                     f"ORS could not snap one or more waypoints with default radius; retried with {fallback_radius_meters:.0f}m radiuses."
                 )
+                LOGGER.warning(
+                    "flood_route_retrying_with_custom_radiuses radius_meters=%.0f",
+                    fallback_radius_meters,
+                )
                 continue
 
+            if distance_error_fn(exc):
+                if avoid_polygons is not None:
+                    avoid_polygons = None
+                    active_geometry_count = 0
+                    route_warnings.append(
+                        "ORS rejected route due to max distance constraint; retried without flood avoidance polygons."
+                    )
+                    LOGGER.warning("flood_route_retrying_without_avoid_polygons_due_to_distance_limit")
+                    continue
+
+                max_distance_meters = _extract_ors_distance_limit_meters(str(exc.detail))
+                if max_distance_meters is not None:
+                    detail = (
+                        "Route exceeds configured ORS maximum distance "
+                        f"({max_distance_meters:.0f} meters). "
+                        "Choose closer points or increase the ORS routing distance limit."
+                    )
+                else:
+                    detail = (
+                        "Route exceeds configured ORS maximum distance. "
+                        "Choose closer points or increase the ORS routing distance limit."
+                    )
+                LOGGER.warning("flood_route_failed_distance_limit max_distance_meters=%s", max_distance_meters)
+                raise HTTPException(status_code=422, detail=detail) from exc
+
+            LOGGER.error("flood_route_failed_non_retriable attempt=%d", attempt)
             raise
 
     response = {
@@ -305,4 +437,13 @@ def compute_flood_aware_route(
     }
     if route_warnings:
         response["warning"] = " ".join(route_warnings)
+    LOGGER.info(
+        "flood_route_completed attempts=%d high_risk_polygon_count=%d avoidance_polygon_count=%d "
+        "using_avoid_polygons=%s using_custom_radiuses=%s",
+        attempt,
+        len(geometries),
+        active_geometry_count,
+        avoid_polygons is not None,
+        radiuses is not None,
+    )
     return response

@@ -78,6 +78,7 @@ Behavior:
 6. Applies fallback logic:
 - ORS error `2003` (avoid polygon area too large): retry without avoid polygons.
 - ORS error `2010` (unroutable point): retry with custom `radiuses`.
+- ORS error `2004` (route exceeds ORS max distance): retry once without avoid polygons, then return `422` if still over limit.
 
 Response shape:
 
@@ -95,6 +96,7 @@ Response shape:
 Error conditions:
 - `500`: missing `ORS_API_KEY`.
 - `500`: artifact parsing failures.
+- `422`: route distance exceeds ORS server maximum distance.
 - `502`: ORS/network/response failures not resolved by fallback path.
 
 ## Static Asset Serving
