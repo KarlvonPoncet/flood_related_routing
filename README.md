@@ -28,6 +28,40 @@ Notes:
 - Keep `.cdsapirc` out of version control and never commit real keys.
 - If ingestion fails with authentication errors, verify the file path and key format first.
 
+## License Activation (Copernicus EWDS / GloFAS)
+
+Before using the ingestion API, you must accept the dataset licence once in your browser.
+
+Open:
+
+https://ewds.climate.copernicus.eu/datasets/cems-glofas-forecast?tab=download#manage-licences
+
+1. Log in with the same account used for your API key.
+2. Scroll to `Terms of use / Licences`.
+3. Click `Accept` / `Agree`.
+
+Important:
+
+- This is required once per dataset.
+- Without accepting the licence, all API requests fail with:
+  `400 Client Error: Not all the required licences have been accepted`
+- After accepting:
+  - ingestion works
+  - scheduler works
+  - no further action needed
+
+### Verify
+
+Run:
+
+```bash
+python -m api.ingestion
+```
+
+If successful, you will see:
+
+`Downloaded GloFAS forecast for YYYY-MM-DD`
+
 ## Run
 
 ```bash
