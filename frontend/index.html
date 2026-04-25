@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flood Risk Map</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f8fb;
+        --panel: #ffffff;
+        --text: #10243f;
+        --muted: #516173;
+        --high: #d62828;
+        --medium: #f77f00;
+        --low: #2a9d8f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: radial-gradient(circle at 20% 10%, #e9f4ff, var(--bg));
+        color: var(--text);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 100vh;
+      }
+
+      .header {
+        padding: 14px 18px;
+        background: var(--panel);
+        border-bottom: 1px solid #d8e2ef;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .title {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+      }
+
+      .status {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      #map {
+        position: relative;
+        width: 100%;
+        height: calc(100vh - 64px);
+        background: linear-gradient(180deg, #e8f3ff 0%, #dfeeff 100%);
+        border-top: 1px solid #d8e2ef;
+      }
+
+      .canvas-wrap {
+        width: 100%;
+        height: 100%;
+        padding: 14px;
+      }
+
+      #viz {
+        width: 100%;
+        height: 100%;
+        display: block;
+        border-radius: 10px;
+        background:
+          linear-gradient(0deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)),
+          repeating-linear-gradient(
+            90deg,
+            #edf3fb 0px,
+            #edf3fb 1px,
+            transparent 1px,
+            transparent 48px
+          ),
+          repeating-linear-gradient(
+            0deg,
+            #edf3fb 0px,
+            #edf3fb 1px,
+            transparent 1px,
+            transparent 48px
+          );
+      }
+
+      .legend {
+        position: absolute;
+        right: 28px;
+        bottom: 28px;
+        background: #fff;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 8px 18px rgba(16, 36, 63, 0.16);
+        font-size: 0.84rem;
+        line-height: 1.6;
+      }
+
+      .swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        margin-right: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <header class="header">
+        <h1 class="title">Live Flood Risk (GloFAS)</h1>
+        <div id="status" class="status">Loading data...</div>
+      </header>
+      <main id="map" aria-label="Flood risk map">
+        <div class="canvas-wrap">
+          <svg id="viz" viewBox="0 0 1000 680" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <div class="legend">
+          <div><span class="swatch" style="background:#d62828"></span>High</div>
+          <div><span class="swatch" style="background:#f77f00"></span>Medium</div>
+          <div><span class="swatch" style="background:#2a9d8f"></span>Low</div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const svg = document.getElementById("viz");
+      const statusEl = document.getElementById("status");
+
+      function colorFor(feature) {
+        const level = feature.properties?.risk_level;
+        const colors = { high: "#d62828", medium: "#f77f00", low: "#2a9d8f" };
+        return colors[level] || "#22577a";
+      }
+
+      function collectRings(feature) {
+        const geom = feature.geometry || {};
+        if (geom.type === "Polygon") return geom.coordinates || [];
+        if (geom.type === "MultiPolygon") return (geom.coordinates || []).flat();
+        return [];
+      }
+
+      function drawGeoJSON(data) {
+        const features = data.features || [];
+        if (features.length === 0) {
+          statusEl.textContent = "No risk zones found in dataset";
+          return;
+        }
+
+        const allCoords = [];
+        for (const feature of features) {
+          for (const ring of collectRings(feature)) {
+            for (const coord of ring) allCoords.push(coord);
+          }
+        }
+
+        if (allCoords.length === 0) {
+          statusEl.textContent = "GeoJSON has no polygon coordinates";
+          return;
+        }
+
+        const lons = allCoords.map((c) => c[0]);
+        const lats = allCoords.map((c) => c[1]);
+        const minLon = Math.min(...lons);
+        const maxLon = Math.max(...lons);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+
+        const width = 1000;
+        const height = 680;
+        const pad = 34;
+        const lonSpan = Math.max(0.000001, maxLon - minLon);
+        const latSpan = Math.max(0.000001, maxLat - minLat);
+
+        const x = (lon) => pad + ((lon - minLon) / lonSpan) * (width - pad * 2);
+        const y = (lat) => height - pad - ((lat - minLat) / latSpan) * (height - pad * 2);
+
+        const backgroundFrame = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        backgroundFrame.setAttribute("x", String(pad));
+        backgroundFrame.setAttribute("y", String(pad));
+        backgroundFrame.setAttribute("width", String(width - pad * 2));
+        backgroundFrame.setAttribute("height", String(height - pad * 2));
+        backgroundFrame.setAttribute("fill", "none");
+        backgroundFrame.setAttribute("stroke", "#9db4cc");
+        backgroundFrame.setAttribute("stroke-width", "1");
+        svg.appendChild(backgroundFrame);
+
+        for (const feature of features) {
+          const color = colorFor(feature);
+          for (const ring of collectRings(feature)) {
+            if (ring.length < 3) continue;
+
+            const d = ring
+              .map((coord, i) => `${i === 0 ? "M" : "L"} ${x(coord[0]).toFixed(2)} ${y(coord[1]).toFixed(2)}`)
+              .join(" ");
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", `${d} Z`);
+            path.setAttribute("fill", color);
+            path.setAttribute("fill-opacity", "0.40");
+            path.setAttribute("stroke", color);
+            path.setAttribute("stroke-width", "1");
+
+            const p = feature.properties || {};
+            const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            tip.textContent = `Risk: ${p.risk_level ?? "n/a"} | Score: ${Number(p.risk_score ?? 0).toFixed(2)} | Discharge: ${Number(p.discharge ?? 0).toFixed(1)}`;
+            path.appendChild(tip);
+
+            svg.appendChild(path);
+          }
+        }
+
+        const count = features.length;
+        statusEl.textContent = `Loaded ${count} risk zones (${minLon.toFixed(2)}..${maxLon.toFixed(2)} lon, ${minLat.toFixed(2)}..${maxLat.toFixed(2)} lat)`;
+      }
+
+      function resolveGeoJsonUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const apiBase = params.get("api_base");
+
+        if (apiBase) {
+          return new URL("/geojson/live", apiBase).toString();
+        }
+
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/geojson/live";
+        }
+
+        return new URL("/geojson/live", window.location.origin).toString();
+      }
+
+      async function loadLayer() {
+        const geojsonUrl = resolveGeoJsonUrl();
+        try {
+          const response = await fetch(geojsonUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+          drawGeoJSON(data);
+        } catch (error) {
+          statusEl.textContent = `Failed to load map data from ${geojsonUrl}: ${error.message}`;
+        }
+      }
+
+      loadLayer();
+    </script>
+  </body>
+</html>
