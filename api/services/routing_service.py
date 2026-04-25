@@ -82,31 +82,84 @@ def call_openrouteservice(
     avoid_polygons: dict[str, Any] | None,
     radiuses: list[float] | None = None,
 ) -> dict[str, Any]:
-    api_key = get_settings().ors_api_key
-    if not api_key:
+    settings = get_settings()
+    if settings.ors_use_local and not settings.ors_local_directions_url:
+        raise HTTPException(
+            status_code=500,
+            detail="ORS_USE_LOCAL is enabled but ORS_LOCAL_DIRECTIONS_URL is not set",
+        )
+
+    api_key = settings.ors_api_key
+    if settings.ors_require_api_key and not api_key:
         raise HTTPException(status_code=500, detail="Missing ORS_API_KEY environment variable")
 
-    body: dict[str, Any] = {
+    base_body: dict[str, Any] = {
         "coordinates": [
             [start.lon, start.lat],
             [end.lon, end.lat],
         ],
     }
     if radiuses is not None:
-        body["radiuses"] = radiuses
+        base_body["radiuses"] = radiuses
     if avoid_polygons is not None:
-        body["options"] = {"avoid_polygons": avoid_polygons}
+        base_body["options"] = {"avoid_polygons": avoid_polygons}
 
+    try:
+        response_payload = _post_ors_json(
+            url=settings.ors_directions_url,
+            body=base_body,
+            headers=_ors_headers(api_key),
+        )
+    except HTTPException as exc:
+        if settings.ors_use_local and _is_ors_unsupported_format_error(exc):
+            local_json_url = _geojson_to_json_url(settings.ors_directions_url)
+            fallback_body = dict(base_body)
+            fallback_body["geometry_format"] = "geojson"
+            response_payload = _post_ors_json(
+                url=local_json_url,
+                body=fallback_body,
+                headers=_ors_headers(api_key),
+            )
+        else:
+            raise
+
+    return _normalize_ors_route_payload(response_payload)
+
+
+def is_ors_avoid_polygon_area_error(exc: HTTPException) -> bool:
+    if exc.status_code != 502:
+        return False
+    detail = str(exc.detail)
+    return "\"code\":2003" in detail and "polygon to avoid" in detail
+
+
+def is_ors_unroutable_point_error(exc: HTTPException) -> bool:
+    if exc.status_code != 502:
+        return False
+    detail = str(exc.detail)
+    return "\"code\":2010" in detail and "routable point" in detail
+
+
+def _is_ors_unsupported_format_error(exc: HTTPException) -> bool:
+    if exc.status_code != 502:
+        return False
+    detail = str(exc.detail)
+    return "\"code\":2007" in detail and "format is not supported" in detail
+
+
+def _geojson_to_json_url(url: str) -> str:
+    if url.endswith("/geojson"):
+        return f"{url[:-8]}/json"
+    return url
+
+
+def _post_ors_json(*, url: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
     payload = json.dumps(body).encode("utf-8")
     req = request.Request(
-        get_settings().ors_directions_url,
+        url,
         data=payload,
         method="POST",
-        headers={
-            "Authorization": api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/geo+json, application/json",
-        },
+        headers=headers,
     )
 
     try:
@@ -122,23 +175,59 @@ def call_openrouteservice(
         raise HTTPException(status_code=502, detail=f"OpenRouteService request failed: {exc}") from exc
 
     try:
-        return json.loads(response_bytes.decode("utf-8"))
+        parsed = json.loads(response_bytes.decode("utf-8"))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Invalid OpenRouteService response: {exc}") from exc
 
-
-def is_ors_avoid_polygon_area_error(exc: HTTPException) -> bool:
-    if exc.status_code != 502:
-        return False
-    detail = str(exc.detail)
-    return "\"code\":2003" in detail and "polygon to avoid" in detail
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=502, detail="Invalid OpenRouteService response: expected JSON object")
+    return parsed
 
 
-def is_ors_unroutable_point_error(exc: HTTPException) -> bool:
-    if exc.status_code != 502:
-        return False
-    detail = str(exc.detail)
-    return "\"code\":2010" in detail and "routable point" in detail
+def _normalize_ors_route_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("type") == "FeatureCollection":
+        return payload
+
+    routes = payload.get("routes")
+    if not isinstance(routes, list) or not routes:
+        return payload
+
+    first_route = routes[0]
+    if not isinstance(first_route, dict):
+        return payload
+
+    geometry = first_route.get("geometry")
+    normalized_geometry: dict[str, Any] | None = None
+    if isinstance(geometry, dict) and geometry.get("type") and geometry.get("coordinates"):
+        normalized_geometry = geometry
+    elif isinstance(geometry, list):
+        normalized_geometry = {"type": "LineString", "coordinates": geometry}
+
+    if normalized_geometry is None:
+        return payload
+
+    summary = first_route.get("summary", {})
+    feature = {
+        "type": "Feature",
+        "geometry": normalized_geometry,
+        "properties": {
+            "summary": summary if isinstance(summary, dict) else {},
+        },
+    }
+    return {
+        "type": "FeatureCollection",
+        "features": [feature],
+    }
+
+
+def _ors_headers(api_key: str | None) -> dict[str, str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/geo+json, application/json",
+    }
+    if api_key:
+        headers["Authorization"] = api_key
+    return headers
 
 
 def compute_flood_aware_route(

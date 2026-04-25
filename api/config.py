@@ -18,6 +18,9 @@ class Settings:
     zip_path: Path
     extract_dir: Path
     ors_api_key: str | None
+    ors_use_local: bool
+    ors_local_directions_url: str | None
+    ors_require_api_key: bool
     ors_directions_url: str
     max_avoid_polygons: int
     simplify_tolerance_degrees: float
@@ -55,6 +58,21 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw).expanduser()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"Environment variable {name} must be a boolean "
+        f"(one of: 1/0, true/false, yes/no, on/off), got: {raw!r}"
+    )
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     root_dir = _env_path("APP_ROOT_DIR", ROOT_DIR)
@@ -63,6 +81,14 @@ def get_settings() -> Settings:
     raw_dir = _env_path("GLOFAS_RAW_DIR", root_dir / "data/raw/glofas")
     zip_path = _env_path("GLOFAS_ZIP_PATH", raw_dir / "glofas_slovenia.zip")
     extract_dir = _env_path("GLOFAS_EXTRACT_DIR", raw_dir / "extracted")
+    remote_ors_url = os.getenv(
+        "ORS_DIRECTIONS_URL",
+        "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+    )
+    local_ors_url = os.getenv("ORS_LOCAL_DIRECTIONS_URL")
+    use_local_ors = _env_bool("ORS_USE_LOCAL", bool(local_ors_url))
+    active_ors_url = local_ors_url if use_local_ors and local_ors_url else remote_ors_url
+    ors_require_api_key = _env_bool("ORS_REQUIRE_API_KEY", not use_local_ors)
 
     return Settings(
         root_dir=root_dir,
@@ -72,10 +98,10 @@ def get_settings() -> Settings:
         zip_path=zip_path,
         extract_dir=extract_dir,
         ors_api_key=os.getenv("ORS_API_KEY"),
-        ors_directions_url=os.getenv(
-            "ORS_DIRECTIONS_URL",
-            "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
-        ),
+        ors_use_local=use_local_ors,
+        ors_local_directions_url=local_ors_url,
+        ors_require_api_key=ors_require_api_key,
+        ors_directions_url=active_ors_url,
         max_avoid_polygons=_env_int("MAX_AVOID_POLYGONS", 200),
         simplify_tolerance_degrees=_env_float("SIMPLIFY_TOLERANCE_DEGREES", 0.005),
         ors_fallback_radius_meters=_env_float("ORS_FALLBACK_RADIUS_METERS", 2000.0),

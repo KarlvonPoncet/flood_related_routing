@@ -28,3 +28,7 @@ Module: `api/scheduler.py`
 - Data volume mounted to `/app/data`.
 - `.cdsapirc` mounted read-only and exposed as `CDSAPI_RC`.
 - `.env` used for ORS-related configuration.
+- Local ORS can be activated with:
+  - `ORS_USE_LOCAL=true`
+  - `ORS_LOCAL_DIRECTIONS_URL=<local-directions-endpoint>`
+  - optional `ORS_REQUIRE_API_KEY=false` for unauthenticated local gateways.

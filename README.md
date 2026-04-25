@@ -51,6 +51,27 @@ Create `.env` in the repo root and set at least:
 ORS_API_KEY=<your_openrouteservice_key>
 ```
 
+To use a locally running ORS instance instead of the public ORS API:
+
+```bash
+ORS_USE_LOCAL=true
+ORS_LOCAL_DIRECTIONS_URL=http://127.0.0.1:8080/ors/v2/directions/driving-car/geojson
+```
+
+Optional auth behavior override:
+
+```bash
+# default is false when ORS_USE_LOCAL=true, true otherwise
+ORS_REQUIRE_API_KEY=false
+```
+
+Routing endpoint selection logic:
+
+- If `ORS_USE_LOCAL=true` and `ORS_LOCAL_DIRECTIONS_URL` is set, requests go to local ORS.
+- Otherwise requests go to `ORS_DIRECTIONS_URL` (remote/public ORS by default).
+- `Authorization` header is sent only when `ORS_API_KEY` is non-empty.
+- API key is required only when `ORS_REQUIRE_API_KEY=true`.
+
 Start API:
 
 ```bash
@@ -162,8 +183,10 @@ RUN_LIVE_ORS_TESTS=1 python -m pytest -q -m live_ors
 - Computes a driving route via OpenRouteService from `start` to `end`.
 - Extracts flood polygons with `risk_level == "high"` from the artifact and selects up to 200 nearest polygons to the midpoint between `start` and `end`.
 - Passes the selected polygons as ORS `avoid_polygons`.
+- If ORS rejects avoid area size (`code 2003`), the backend retries with progressively fewer nearest polygons before finally disabling avoidance.
 - If the artifact does not exist, ingestion runs automatically first.
 - Requires `ORS_API_KEY` in the API process environment.
+  - Exception: when `ORS_USE_LOCAL=true`, API key is optional unless `ORS_REQUIRE_API_KEY=true`.
 
 Example request:
 

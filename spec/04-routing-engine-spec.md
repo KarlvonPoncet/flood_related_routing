@@ -27,16 +27,16 @@ Request body includes:
 - optional `radiuses` fallback array
 
 Headers:
-- `Authorization: ORS_API_KEY`
 - `Content-Type: application/json`
 - `Accept: application/geo+json, application/json`
+- optional `Authorization: ORS_API_KEY` (sent only when key is non-empty)
 
 ## Fallback Strategy
 
 - `2003` area error on avoid polygons:
-1. drop avoid polygons
-2. retry route call
-3. emit warning
+1. retry with progressively fewer nearest polygons (`n -> n/2 -> ...`) while avoid polygons remain valid
+2. if no valid reduced avoid geometry remains, drop avoid polygons and retry
+3. emit warning(s) describing each fallback step
 
 - `2010` unroutable point error:
 1. set `radiuses=[ORS_FALLBACK_RADIUS_METERS, ORS_FALLBACK_RADIUS_METERS]`
@@ -48,6 +48,7 @@ Headers:
 ## Response Semantics
 
 - `high_risk_polygon_count`: count after midpoint-based selection.
+- `avoidance_polygon_count`: number of polygons used in final ORS request.
 - `using_avoid_polygons`: final request included avoid polygons.
 - `using_custom_radiuses`: fallback radius retry used.
 - `warning`: optional concatenated fallback diagnostics.
