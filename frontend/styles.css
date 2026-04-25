@@ -1,0 +1,167 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f8fb;
+  --panel: #ffffff;
+  --text: #10243f;
+  --muted: #516173;
+  --high: #d62828;
+  --medium: #f77f00;
+  --low: #2a9d8f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: radial-gradient(circle at 20% 10%, #e9f4ff, var(--bg));
+  color: var(--text);
+}
+
+.layout {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.header {
+  padding: 14px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid #d8e2ef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+#map {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 64px);
+  border-top: 1px solid #d8e2ef;
+}
+
+.route-panel {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  z-index: 1000;
+  width: min(360px, calc(100% - 40px));
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 8px 18px rgba(16, 36, 63, 0.16);
+  display: grid;
+  gap: 10px;
+}
+
+.route-panel h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.coord-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.route-panel label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.route-panel input {
+  border: 1px solid #c7d6e6;
+  border-radius: 6px;
+  padding: 7px;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.actions button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: #22577a;
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #eef4fb;
+  color: #21415f;
+}
+
+.route-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+  min-height: 18px;
+}
+
+.legend {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1000;
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 8px 18px rgba(16, 36, 63, 0.16);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-right: 6px;
+}
+
+@media (max-width: 640px) {
+  #map {
+    height: calc(100vh - 58px);
+  }
+
+  .header {
+    padding: 10px 12px;
+  }
+
+  .route-panel {
+    left: 10px;
+    top: 10px;
+    width: calc(100% - 20px);
+  }
+
+  .legend {
+    right: 10px;
+    bottom: 10px;
+  }
+}

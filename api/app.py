@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.ingestion import ingest_file
 from api.routing import router as routing_router
+from api.services import artifact_service
 
 
 app = FastAPI(title="Ingestion API")
@@ -23,6 +24,9 @@ app.add_middleware(
 SETTINGS = get_settings()
 DEFAULT_ARTIFACT = SETTINGS.default_artifact
 FRONTEND_INDEX = SETTINGS.frontend_index
+FRONTEND_DIR = FRONTEND_INDEX.parent
+
+app.mount("/static/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend-static")
 
 
 @app.get("/health")
@@ -39,16 +43,12 @@ def frontend() -> FileResponse:
 
 @app.get("/geojson/live")
 def geojson_live(source: str = Query("default", description="Ingestion source")) -> JSONResponse:
-    artifact_path = DEFAULT_ARTIFACT
-
-    if not artifact_path.exists():
-        artifact_path = ingest_file(source=source, target=str(DEFAULT_ARTIFACT))
-
-    try:
-        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to read GeoJSON: {exc}") from exc
-
+    artifact_path = artifact_service.ensure_artifact_exists(
+        artifact_path=DEFAULT_ARTIFACT,
+        source=source,
+        ingest_fn=ingest_file,
+    )
+    payload = artifact_service.load_geojson_payload(artifact_path)
     return JSONResponse(content=payload)
 
 
@@ -58,13 +58,9 @@ def get_or_build_artifact(
     source: str = Query("default", description="Source used by ingestion when file is missing"),
 ) -> FileResponse:
     target_path = Path(target)
-
-    if target_path.exists() and target_path.is_file():
-        return FileResponse(path=target_path, filename=target_path.name)
-
-    created_path = ingest_file(source=source, target=target)
-
-    if not created_path.exists() or not created_path.is_file():
-        raise HTTPException(status_code=500, detail="Ingestion finished but output file is missing")
-
-    return FileResponse(path=created_path, filename=created_path.name)
+    output_path = artifact_service.ensure_output_file(
+        target_path=target_path,
+        source=source,
+        ingest_fn=ingest_file,
+    )
+    return FileResponse(path=output_path, filename=output_path.name)

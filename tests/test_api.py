@@ -192,10 +192,11 @@ def test_route_endpoint_uses_ingestion_and_returns_route_payload(
     }
     monkeypatch.setattr(routing_module, "_build_avoid_polygons", lambda geoms: avoid if geoms else None)
 
-    def _call_ors(*, start, end, avoid_polygons):
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         observed["start"] = (start.lat, start.lon)
         observed["end"] = (end.lat, end.lon)
         observed["avoid_polygons"] = avoid_polygons
+        observed["radiuses"] = radiuses
         return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
 
     monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
@@ -215,6 +216,7 @@ def test_route_endpoint_uses_ingestion_and_returns_route_payload(
     assert observed["ingest_source"] == "route-source"
     assert observed["ingest_target"] == str(artifact)
     assert observed["avoid_polygons"] == avoid
+    assert observed["radiuses"] is None
 
 
 def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(
@@ -234,9 +236,9 @@ def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(
 
     calls: list[dict] = []
 
-    def _call_ors(*, start, end, avoid_polygons):
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         del start, end
-        calls.append({"avoid_polygons": avoid_polygons})
+        calls.append({"avoid_polygons": avoid_polygons, "radiuses": radiuses})
         if avoid_polygons is not None:
             raise HTTPException(
                 status_code=502,
@@ -255,12 +257,15 @@ def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(
     assert len(calls) == 2
     assert calls[0]["avoid_polygons"] == avoid
     assert calls[1]["avoid_polygons"] is None
+    assert calls[0]["radiuses"] is None
+    assert calls[1]["radiuses"] is None
     assert payload["using_avoid_polygons"] is False
+    assert payload["using_custom_radiuses"] is False
     assert "warning" in payload
     assert payload["route"]["type"] == "FeatureCollection"
 
 
-def test_route_endpoint_re_raises_non_area_ors_error(
+def test_route_endpoint_retries_with_custom_radiuses_when_ors_reports_unroutable_point(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -274,9 +279,52 @@ def test_route_endpoint_re_raises_non_area_ors_error(
         lambda geoms: {"type": "Polygon", "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.0, 46.1], [14.0, 46.0]]]},
     )
 
-    def _call_ors(*, start, end, avoid_polygons):
+    calls: list[dict] = []
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         del start, end, avoid_polygons
-        raise HTTPException(status_code=502, detail='OpenRouteService request failed (400): {"error":{"code":2010}}')
+        calls.append({"radiuses": radiuses})
+        if radiuses is None:
+            raise HTTPException(
+                status_code=502,
+                detail='OpenRouteService request failed (404): {"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters"}}',
+            )
+        return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+    )
+
+    payload = routing_module.route_avoid_flood_high_risk(req)
+
+    assert len(calls) == 2
+    assert calls[0]["radiuses"] is None
+    assert calls[1]["radiuses"] == [routing_module.get_settings().ors_fallback_radius_meters] * 2
+    assert payload["using_custom_radiuses"] is True
+    assert "warning" in payload
+    assert payload["route"]["type"] == "FeatureCollection"
+
+
+def test_route_endpoint_re_raises_non_retriable_ors_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object()])
+    monkeypatch.setattr(
+        routing_module,
+        "_build_avoid_polygons",
+        lambda geoms: {"type": "Polygon", "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.0, 46.1], [14.0, 46.0]]]},
+    )
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, avoid_polygons, radiuses
+        raise HTTPException(status_code=502, detail='OpenRouteService request failed (400): {"error":{"code":2099}}')
 
     monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
 
@@ -289,4 +337,4 @@ def test_route_endpoint_re_raises_non_area_ors_error(
         routing_module.route_avoid_flood_high_risk(req)
 
     assert exc_info.value.status_code == 502
-    assert '"code":2010' in str(exc_info.value.detail)
+    assert '"code":2099' in str(exc_info.value.detail)

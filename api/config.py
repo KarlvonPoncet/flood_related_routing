@@ -21,6 +21,7 @@ class Settings:
     ors_directions_url: str
     max_avoid_polygons: int
     simplify_tolerance_degrees: float
+    ors_fallback_radius_meters: float
     eu_min_lon: float
     eu_max_lon: float
     eu_min_lat: float
@@ -77,6 +78,7 @@ def get_settings() -> Settings:
         ),
         max_avoid_polygons=_env_int("MAX_AVOID_POLYGONS", 200),
         simplify_tolerance_degrees=_env_float("SIMPLIFY_TOLERANCE_DEGREES", 0.005),
+        ors_fallback_radius_meters=_env_float("ORS_FALLBACK_RADIUS_METERS", 2000.0),
         eu_min_lon=_env_float("EU_MIN_LON", -25.0),
         eu_max_lon=_env_float("EU_MAX_LON", 45.0),
         eu_min_lat=_env_float("EU_MIN_LAT", 34.0),

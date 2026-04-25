@@ -1,5 +1,14 @@
 # Ingestion API
 
+## API Structure
+
+- `api/app.py`: FastAPI entrypoint and HTTP route wiring.
+- `api/routing.py`: routing endpoint wiring and request models.
+- `api/services/artifact_service.py`: artifact existence/validation and GeoJSON loading.
+- `api/services/routing_service.py`: ORS communication, flood polygon processing, and routing fallbacks.
+- `api/ingestion.py`: ingestion pipeline (download, extract, transform, GeoJSON export).
+- `api/config.py`: centralized runtime configuration from environment variables.
+
 ## CDS Credentials (`.cdsapirc`)
 
 `api/ingestion.py` uses `cdsapi`, which requires a credentials file at:
