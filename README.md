@@ -1,13 +1,5 @@
 # Ingestion API
 
-## Setup
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
 ## CDS Credentials (`.cdsapirc`)
 
 `api/ingestion.py` uses `cdsapi`, which requires a credentials file at:
@@ -30,9 +22,7 @@ Notes:
 
 ## License Activation (Copernicus EWDS / GloFAS)
 
-Before using the ingestion API, you must accept the dataset licence once in your browser.
-
-Open:
+Before using the ingestion API, accept the dataset licence once in your browser:
 
 https://ewds.climate.copernicus.eu/datasets/cems-glofas-forecast?tab=download#manage-licences
 
@@ -40,40 +30,76 @@ https://ewds.climate.copernicus.eu/datasets/cems-glofas-forecast?tab=download#ma
 2. Scroll to `Terms of use / Licences`.
 3. Click `Accept` / `Agree`.
 
-Important:
+Without accepting, API requests fail with `400 Client Error: Not all the required licences have been accepted`.
 
-- This is required once per dataset.
-- Without accepting the licence, all API requests fail with:
-  `400 Client Error: Not all the required licences have been accepted`
-- After accepting:
-  - ingestion works
-  - scheduler works
-  - no further action needed
+## Run With Docker
 
-### Verify
+### Docker Compose (recommended)
 
-Run:
+Start API:
 
 ```bash
-python -m api.ingestion
+docker compose up --build api
 ```
 
-If successful, you will see:
+API is available at `http://127.0.0.1:8000/`.
 
-`Downloaded GloFAS forecast for YYYY-MM-DD`
+`docker-compose.yml` mounts:
 
-## Run
+- `./data` to `/app/data` (artifacts persist on host)
+- `${HOME}/.cdsapirc` to `/home/appuser/.cdsapirc:ro` (CDS credentials)
+
+Start API + scheduler:
 
 ```bash
+docker compose --profile scheduler up --build
+```
+
+Stop services:
+
+```bash
+docker compose down
+```
+
+### Docker CLI
+
+Build image:
+
+```bash
+docker build -t flood-related-routing:latest .
+```
+
+Run API container:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -v "$(pwd)/data:/app/data" \
+  -v "$HOME/.cdsapirc:/home/appuser/.cdsapirc:ro" \
+  flood-related-routing:latest
+```
+
+Run scheduler container:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/data:/app/data" \
+  -v "$HOME/.cdsapirc:/home/appuser/.cdsapirc:ro" \
+  flood-related-routing:latest \
+  python -m api.scheduler
+```
+
+## Run Locally (without Docker)
+
+```bash
+python3 -m venv .venv
 . .venv/bin/activate
+python -m pip install -r requirements.txt
 uvicorn api.app:app --reload
 ```
 
 Open `http://127.0.0.1:8000/` to view the map frontend.
 
-## Hourly Scheduler
-
-Run ingestion every hour to keep `data/processed/live_flood.geojson` up to date:
+Run the scheduler:
 
 ```bash
 . .venv/bin/activate

@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+    image: flood-related-routing:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ${HOME}/.cdsapirc:/home/appuser/.cdsapirc:ro
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+    image: flood-related-routing:latest
+    profiles:
+      - scheduler
+    volumes:
+      - ./data:/app/data
+      - ${HOME}/.cdsapirc:/home/appuser/.cdsapirc:ro
+    command: python -m api.scheduler
+    restart: unless-stopped
