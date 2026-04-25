@@ -17,7 +17,7 @@ class CoordinateLike(Protocol):
     lon: float
 
 
-def load_high_risk_geometries(artifact_path: Path, *, max_avoid_polygons: int) -> list[Any]:
+def load_high_risk_geometries(artifact_path: Path) -> list[Any]:
     try:
         payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -47,8 +47,6 @@ def load_high_risk_geometries(artifact_path: Path, *, max_avoid_polygons: int) -
             continue
 
         geometries.append(parsed_geometry)
-        if len(geometries) >= max_avoid_polygons:
-            break
 
     return geometries
 

@@ -160,7 +160,8 @@ RUN_LIVE_ORS_TESTS=1 python -m pytest -q -m live_ors
 `POST /route/avoid-flood-high-risk`
 
 - Computes a driving route via OpenRouteService from `start` to `end`.
-- Extracts flood polygons with `risk_level == "high"` from the artifact and passes them as ORS `avoid_polygons`.
+- Extracts flood polygons with `risk_level == "high"` from the artifact and selects up to 200 nearest polygons to the midpoint between `start` and `end`.
+- Passes the selected polygons as ORS `avoid_polygons`.
 - If the artifact does not exist, ingestion runs automatically first.
 - Requires `ORS_API_KEY` in the API process environment.
 

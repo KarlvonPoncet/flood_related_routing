@@ -1,0 +1,67 @@
+# Ingestion Pipeline Specification
+
+## Scope
+
+Defines generation of flood-risk GeoJSON from GloFAS forecast data.
+
+## Inputs
+
+- CDS credentials via `.cdsapirc`/`CDSAPI_RC`.
+- Runtime settings from `api/config.py`.
+
+## Outputs
+
+- GeoJSON file at default artifact path or requested target.
+
+## Pipeline Stages
+
+### 1. Download (`download`)
+
+- Attempts up to last 7 UTC dates.
+- Requests dataset: `cems-glofas-forecast`.
+- Variable: `river_discharge_in_the_last_24_hours`.
+- Forecast lead times: `24`, `48`, `72`.
+- Download format: ZIP containing GRIB2.
+
+Failure:
+- Raises `RuntimeError` if no successful date in 7-day window.
+
+### 2. Extract (`extract_zip`)
+
+- Clears extraction directory.
+- Extracts ZIP content.
+- Selects first `.grib`/`.grib2` file recursively.
+
+Failure:
+- Raises `RuntimeError` if no GRIB file found.
+
+### 3. Open GRIB (`open_glofas_grib`)
+
+- Uses `xarray.open_dataset(..., engine="cfgrib")`.
+
+Failure:
+- Wraps missing cfgrib error with actionable install hint.
+
+### 4. Transform (`process`)
+
+Algorithm:
+1. Resolve discharge variable (`river_discharge_in_the_last_24_hours` preferred; fallback first var).
+2. Ensure latitude/longitude coordinates exist.
+3. Reduce non-spatial dimensions by selecting index 0.
+4. Sample grid every second cell.
+5. Keep points within configured Europe bounds.
+6. Skip NaN and values `< 500`.
+7. Compute risk score `min(1.0, discharge/3000.0)` and level:
+- `high` if `risk > 0.7`
+- `medium` if `risk > 0.3`
+- else `low`
+8. Create polygon geometry by buffering point (`0.08` degrees).
+9. Serialize as GeoJSON via GeoPandas.
+
+Feature properties:
+- `risk_score`, `risk_level`, `discharge`, `source`, `layer`, `timestamp`.
+
+## Entry Points
+
+- `run()`: full default pipeline to default artifact.
+- `ingest_file(source, target)`: full pipeline to requested target path.

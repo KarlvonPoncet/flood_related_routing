@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from api.config import get_settings
 from api.ingestion import ingest_file
-from api.services import artifact_service, routing_service
+from api.services import artifact_service, polygon_selection_service, routing_service
 
 
 router = APIRouter()
@@ -33,9 +33,20 @@ class RouteAvoidFloodsRequest(BaseModel):
 
 
 def _load_high_risk_geometries(artifact_path: Path) -> list[Any]:
-    return routing_service.load_high_risk_geometries(
-        artifact_path,
-        max_avoid_polygons=MAX_AVOID_POLYGONS,
+    return routing_service.load_high_risk_geometries(artifact_path)
+
+
+def _select_nearest_avoid_geometries(
+    geometries: list[Any],
+    *,
+    start: Coordinate,
+    end: Coordinate,
+) -> list[Any]:
+    return polygon_selection_service.select_nearest_polygons_to_midpoint(
+        geometries,
+        start=start,
+        end=end,
+        limit=MAX_AVOID_POLYGONS,
     )
 
 
@@ -79,11 +90,18 @@ def route_avoid_flood_high_risk(req: RouteAvoidFloodsRequest) -> dict[str, Any]:
         ingest_fn=ingest_file,
     )
 
+    all_geometries = _load_high_risk_geometries(artifact_path)
+    selected_geometries = _select_nearest_avoid_geometries(
+        all_geometries,
+        start=req.start,
+        end=req.end,
+    )
+
     return routing_service.compute_flood_aware_route(
         start=req.start,
         end=req.end,
         artifact_path=artifact_path,
-        load_geometries_fn=_load_high_risk_geometries,
+        load_geometries_fn=lambda _: selected_geometries,
         build_avoid_fn=_build_avoid_polygons,
         call_ors_fn=_call_openrouteservice,
         fallback_radius_meters=get_settings().ors_fallback_radius_meters,

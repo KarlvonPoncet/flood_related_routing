@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from shapely.geometry import Point
 
 from api import app as app_module
 from api import routing as routing_module
@@ -338,3 +339,51 @@ def test_route_endpoint_re_raises_non_retriable_ors_error(
 
     assert exc_info.value.status_code == 502
     assert '"code":2099' in str(exc_info.value.detail)
+
+
+def test_route_endpoint_selects_nearest_200_polygons_to_midpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "DEFAULT_ARTIFACT", artifact)
+
+    far_geometries = [Point(1000 + i, 0).buffer(0.01) for i in range(200)]
+    near_geometries = [Point(i, 0).buffer(0.01) for i in range(10)]
+    all_geometries = far_geometries + near_geometries
+
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: all_geometries)
+
+    observed: dict[str, object] = {}
+
+    def _build_avoid(geoms):
+        selected_centers = sorted(round(g.centroid.x) for g in geoms)
+        observed["selected_centers"] = selected_centers
+        return {"type": "Polygon", "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.0, 46.1], [14.0, 46.0]]]}
+
+    monkeypatch.setattr(routing_module, "_build_avoid_polygons", _build_avoid)
+
+    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+        del start, end, radiuses
+        observed["avoid_polygons"] = avoid_polygons
+        return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
+
+    monkeypatch.setattr(routing_module, "_call_openrouteservice", _call_ors)
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=-1.0, lon=-1.0),
+        end=routing_module.Coordinate(lat=1.0, lon=1.0),
+    )
+    payload = routing_module.route_avoid_flood_high_risk(req)
+
+    selected_centers = observed["selected_centers"]
+    assert isinstance(selected_centers, list)
+    assert len(selected_centers) == 200
+    assert selected_centers[:10] == list(range(10))
+    assert 1190 not in selected_centers
+    assert 1199 not in selected_centers
+    assert payload["high_risk_polygon_count"] == 200
+    assert payload["using_avoid_polygons"] is True
+    assert payload["route"]["type"] == "FeatureCollection"
+    assert observed["avoid_polygons"] is not None
