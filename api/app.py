@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -10,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from api.config import get_settings
 from api.ingestion import ingest_file
 from api.routing import router as routing_router
-from api.services import artifact_service
+from api.services import artifact_service, path_policy_service
 
 
 app = FastAPI(title="Ingestion API")
@@ -57,7 +55,7 @@ def get_or_build_artifact(
     target: str = Query(..., description="File path to return"),
     source: str = Query("default", description="Source used by ingestion when file is missing"),
 ) -> FileResponse:
-    target_path = Path(target)
+    target_path = path_policy_service.resolve_artifact_path(target, settings=get_settings())
     output_path = artifact_service.ensure_output_file(
         target_path=target_path,
         source=source,

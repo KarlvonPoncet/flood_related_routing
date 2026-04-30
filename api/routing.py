@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from api.config import get_settings
 from api.ingestion import ingest_file
-from api.services import flood_route_workflow, routing_service
+from api.services import flood_route_workflow, path_policy_service, routing_service
 
 
 router = APIRouter()
@@ -70,11 +70,16 @@ def _call_routing_provider(
 @router.post("/route/avoid-flood-high-risk", response_model=RouteAvoidFloodsResponse)
 def route_avoid_flood_high_risk(req: RouteAvoidFloodsRequest) -> dict[str, Any]:
     settings = get_settings()
+    artifact_path = (
+        path_policy_service.resolve_artifact_path(req.artifact_path, settings=settings)
+        if req.artifact_path
+        else None
+    )
     route_input = flood_route_workflow.FloodRouteInput(
         start=req.start,
         end=req.end,
         source=req.source,
-        artifact_path=Path(req.artifact_path) if req.artifact_path else None,
+        artifact_path=artifact_path,
     )
     dependencies = flood_route_workflow.FloodRouteDependencies(
         ingest_fn=ingest_file,

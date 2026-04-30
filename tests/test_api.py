@@ -186,6 +186,22 @@ def test_artifact_raises_500_when_ingestion_does_not_create_output(
     assert exc_info.value.detail == "Ingestion finished but output file is missing"
 
 
+def test_artifact_rejects_parent_traversal_target() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        app_module.get_or_build_artifact(target="../secret.geojson")
+
+    assert exc_info.value.status_code == 400
+    assert "cannot contain '..'" in str(exc_info.value.detail)
+
+
+def test_artifact_rejects_absolute_target_outside_allowed_roots() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        app_module.get_or_build_artifact(target="/etc/passwd")
+
+    assert exc_info.value.status_code == 400
+    assert "must be under one of" in str(exc_info.value.detail)
+
+
 def test_route_endpoint_uses_ingestion_and_returns_route_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -509,6 +525,34 @@ def test_route_endpoint_rejects_invalid_provider_route_payload(
 
     assert exc_info.value.status_code == 502
     assert "expected GeoJSON FeatureCollection" in str(exc_info.value.detail)
+
+
+def test_route_endpoint_rejects_parent_traversal_artifact_path() -> None:
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        artifact_path="../secret.geojson",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        routing_module.route_avoid_flood_high_risk(req)
+
+    assert exc_info.value.status_code == 400
+    assert "cannot contain '..'" in str(exc_info.value.detail)
+
+
+def test_route_endpoint_rejects_absolute_artifact_path_outside_allowed_roots() -> None:
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        artifact_path="/etc/passwd",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        routing_module.route_avoid_flood_high_risk(req)
+
+    assert exc_info.value.status_code == 400
+    assert "must be under one of" in str(exc_info.value.detail)
 
 
 def test_route_endpoint_timeout_surfaces_reachability_detail(
