@@ -14,6 +14,12 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("ORS_API_KEY", "secret-key")
     monkeypatch.setenv("ORS_DIRECTIONS_URL", "https://remote.example/route")
     monkeypatch.setenv("ORS_REQUEST_TIMEOUT_SECONDS", "7.5")
+    monkeypatch.setenv("ROUTING_PROVIDER", "OpenRouteService")
+    monkeypatch.setenv("CUSTOM_ROUTING_GRAPH_PATH", "/tmp/custom/graph.graphml")
+    monkeypatch.setenv("CUSTOM_ROUTING_GRAPH_METADATA_PATH", "/tmp/custom/graph-meta.json")
+    monkeypatch.setenv("CUSTOM_ROUTING_OSM_PLACE", "Slovenia")
+    monkeypatch.setenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "bike")
+    monkeypatch.setenv("CUSTOM_ROUTING_SIMPLIFY_GRAPH", "false")
     monkeypatch.setenv("MAX_AVOID_POLYGONS", "123")
     monkeypatch.setenv("SIMPLIFY_TOLERANCE_DEGREES", "0.25")
     monkeypatch.setenv("EU_MIN_LAT", "10.0")
@@ -27,6 +33,12 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.ors_api_key == "secret-key"
     assert settings.ors_directions_url == "https://remote.example/route"
     assert settings.ors_request_timeout_seconds == 7.5
+    assert settings.routing_provider == "openrouteservice"
+    assert settings.custom_routing_graph_path == Path("/tmp/custom/graph.graphml")
+    assert settings.custom_routing_graph_metadata_path == Path("/tmp/custom/graph-meta.json")
+    assert settings.custom_routing_osm_place == "Slovenia"
+    assert settings.custom_routing_osm_network_type == "bike"
+    assert settings.custom_routing_simplify_graph is False
     assert settings.max_avoid_polygons == 123
     assert settings.simplify_tolerance_degrees == 0.25
     assert settings.eu_min_lat == 10.0

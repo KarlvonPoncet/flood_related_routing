@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 tmp/
 .codex
+cache/
+plans/
 
 # Local secrets
 .cdsapirc

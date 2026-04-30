@@ -73,12 +73,17 @@ Behavior:
 1. Ensures artifact exists (uses `artifact_path` if provided; otherwise default artifact).
 2. Loads all `risk_level == "high"` polygon geometries.
 3. Selects up to `MAX_AVOID_POLYGONS` nearest polygons to midpoint between start/end.
-4. Builds merged/simplified `avoid_polygons` geometry.
-5. Calls ORS directions API.
+4. Builds merged/simplified provider-compatible avoid geometry.
+5. Calls configured routing provider (`ROUTING_PROVIDER`, default `openrouteservice`).
 6. Applies fallback logic:
-- ORS error `2003` (avoid polygon area too large): retry without avoid polygons.
-- ORS error `2010` (unroutable point): retry with custom `radiuses`.
-- ORS error `2004` (route exceeds ORS max distance): retry once without avoid polygons, then return `422` if still over limit.
+- avoid polygon area too large: retry with fewer polygons, then without avoid polygons.
+- unroutable point: retry with custom routing radius values when the provider supports that option.
+- route exceeds provider max distance: retry once without avoid polygons, then return `422` if still over limit.
+
+OpenRouteService provider mappings:
+- ORS error `2003`: avoid polygon area too large.
+- ORS error `2010`: unroutable point.
+- ORS error `2004`: route exceeds ORS max distance.
 
 Response shape:
 
@@ -94,10 +99,10 @@ Response shape:
 ```
 
 Error conditions:
-- `500`: missing `ORS_API_KEY`.
+- `500`: unsupported `ROUTING_PROVIDER`, missing provider credentials, or missing provider configuration.
 - `500`: artifact parsing failures.
-- `422`: route distance exceeds ORS server maximum distance.
-- `502`: ORS/network/response failures not resolved by fallback path.
+- `422`: route distance exceeds provider maximum distance.
+- `502`: provider/network/response failures not resolved by fallback path.
 
 ## Static Asset Serving
 

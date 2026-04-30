@@ -51,6 +51,12 @@ Create `.env` in the repo root and set at least:
 ORS_API_KEY=<your_openrouteservice_key>
 ```
 
+The routing provider is selected with `ROUTING_PROVIDER`. The default and currently implemented provider is:
+
+```bash
+ROUTING_PROVIDER=openrouteservice
+```
+
 To use a locally running ORS instance instead of the public ORS API:
 
 ```bash
@@ -70,6 +76,7 @@ ORS_REQUEST_TIMEOUT_SECONDS=12
 
 Routing endpoint selection logic:
 
+- `ROUTING_PROVIDER=openrouteservice` uses the OpenRouteService provider implementation.
 - If `ORS_USE_LOCAL=true` and `ORS_LOCAL_DIRECTIONS_URL` is set, requests go to local ORS.
 - Otherwise requests go to `ORS_DIRECTIONS_URL` (remote/public ORS by default).
 - `Authorization` header is sent only when `ORS_API_KEY` is non-empty.
@@ -184,6 +191,7 @@ RUN_LIVE_ORS_TESTS=1 python -m pytest -q -m live_ors
 `POST /route/avoid-flood-high-risk`
 
 - Computes a driving route via OpenRouteService from `start` to `end`.
+- Routing is called through the configured provider abstraction; OpenRouteService is the default provider.
 - Extracts flood polygons with `risk_level == "high"` from the artifact and selects up to 200 nearest polygons to the midpoint between `start` and `end`.
 - Passes the selected polygons as ORS `avoid_polygons`.
 - If ORS rejects avoid area size (`code 2003`), the backend retries with progressively fewer nearest polygons before finally disabling avoidance.

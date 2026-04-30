@@ -27,8 +27,13 @@ Module: `api/scheduler.py`
 - `docker-compose.yml` provides `api` and optional `scheduler` profile service.
 - Data volume mounted to `/app/data`.
 - `.cdsapirc` mounted read-only and exposed as `CDSAPI_RC`.
-- `.env` used for ORS-related configuration.
-- Local ORS can be activated with:
+- `.env` used for routing provider configuration.
+- `ROUTING_PROVIDER=openrouteservice` selects the current default provider.
+- Local OpenRouteService can be activated with:
   - `ORS_USE_LOCAL=true`
   - `ORS_LOCAL_DIRECTIONS_URL=<local-directions-endpoint>`
   - optional `ORS_REQUIRE_API_KEY=false` for unauthenticated local gateways.
+- Custom routing graph ingestion can be run with:
+  - `python -m api.osm_graph_ingestion`
+  - optional `CUSTOM_ROUTING_OSM_PLACE=<place-name>`
+  - optional `CUSTOM_ROUTING_GRAPH_PATH=<graphml-output>`

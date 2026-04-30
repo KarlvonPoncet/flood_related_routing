@@ -9,6 +9,35 @@ Defines generation of flood-risk GeoJSON from GloFAS forecast data.
 - CDS credentials via `.cdsapirc`/`CDSAPI_RC`.
 - Runtime settings from `api/config.py`.
 
+## Upstream Data Source
+
+The ingestion service downloads forecast data from the Copernicus Climate Data Store / Early Warning Data Store through `cdsapi`.
+
+Dataset:
+- CDS/EWDS dataset id: `cems-glofas-forecast`
+- Product family: GloFAS forecast
+- System version: `operational`
+- Hydrological model: `lisflood`
+- Product type: `control_forecast`
+- Variable: `river_discharge_in_the_last_24_hours`
+- Forecast lead times: `24`, `48`, `72` hours
+- Data format: `grib2`
+- Download format: ZIP
+
+Date selection:
+- The pipeline tries the current UTC date first.
+- If unavailable, it walks backward one day at a time for up to 7 UTC dates.
+- The first successful forecast download is used.
+
+Local raw storage:
+- ZIP target defaults to `data/raw/glofas/glofas_slovenia.zip`.
+- Extracted files default to `data/raw/glofas/extracted/`.
+- Paths can be overridden with `GLOFAS_RAW_DIR`, `GLOFAS_ZIP_PATH`, and `GLOFAS_EXTRACT_DIR`.
+
+Spatial scope:
+- The downloaded GloFAS file is filtered during transform to configured Europe bounds.
+- Bounds are controlled by `EU_MIN_LON`, `EU_MAX_LON`, `EU_MIN_LAT`, and `EU_MAX_LAT`.
+
 ## Outputs
 
 - GeoJSON file at default artifact path or requested target.

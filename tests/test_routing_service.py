@@ -78,6 +78,24 @@ def test_is_ors_distance_limit_error_detects_code_2004() -> None:
     assert routing_service.is_ors_distance_limit_error(exc) is True
 
 
+def test_get_routing_provider_returns_openrouteservice_by_default() -> None:
+    provider = routing_service.get_routing_provider()
+    assert provider.name == "openrouteservice"
+
+
+def test_get_routing_provider_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROUTING_PROVIDER", "unknown")
+    routing_service.get_settings.cache_clear()
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routing_service.get_routing_provider()
+    finally:
+        routing_service.get_settings.cache_clear()
+
+    assert exc_info.value.status_code == 500
+    assert "Unsupported ROUTING_PROVIDER" in str(exc_info.value.detail)
+
+
 def test_compute_flood_aware_route_logs_attempts_and_area_fallback(caplog: pytest.LogCaptureFixture) -> None:
     class _Coordinate:
         def __init__(self, lat: float, lon: float):

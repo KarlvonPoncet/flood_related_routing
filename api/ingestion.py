@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
+import logging
 from pathlib import Path
 import zipfile
 
@@ -11,6 +12,8 @@ import xarray as xr
 from shapely.geometry import Point
 
 from api.config import get_settings
+
+LOGGER = logging.getLogger(__name__)
 
 SETTINGS = get_settings()
 ROOT_DIR = SETTINGS.root_dir
@@ -50,17 +53,17 @@ def download(target_path: Path = ZIP_PATH) -> Path:
         }
 
         try:
-            print(f"Trying GloFAS date: {date.date()}")
+            LOGGER.info("glofas_download_started date=%s target_path=%s", date.date(), target_path)
             client.retrieve(
                 "cems-glofas-forecast",
                 request,
                 str(target_path),
             )
-            print(f"Downloaded GloFAS forecast for {date.date()}")
+            LOGGER.info("glofas_download_succeeded date=%s target_path=%s", date.date(), target_path)
             return target_path
 
         except Exception as e:
-            print(f"Failed for {date.date()}: {e}")
+            LOGGER.warning("glofas_download_failed date=%s error=%s", date.date(), e)
 
     raise RuntimeError("No valid GloFAS forecast found in the last 7 days.")
 
@@ -205,5 +208,6 @@ def ingest_file(source: str, target: str) -> Path:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     written = run()
-    print(f"Wrote {written}")
+    LOGGER.info("glofas_ingestion_completed output_path=%s", written)

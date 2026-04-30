@@ -8,8 +8,9 @@ Centralized runtime settings via `api/config.py`.
 
 `Settings` fields:
 - path settings: `root_dir`, `default_artifact`, `frontend_index`, `raw_dir`, `zip_path`, `extract_dir`
-- ORS settings: `ors_api_key`, `ors_use_local`, `ors_local_directions_url`, `ors_require_api_key`, `ors_directions_url`, `ors_fallback_radius_meters`
-- routing tuning: `max_avoid_polygons`, `simplify_tolerance_degrees`
+- routing settings: `routing_provider`, `max_avoid_polygons`, `simplify_tolerance_degrees`
+- OpenRouteService settings: `ors_api_key`, `ors_use_local`, `ors_local_directions_url`, `ors_require_api_key`, `ors_directions_url`, `ors_fallback_radius_meters`
+- custom routing graph settings: `custom_routing_graph_path`, `custom_routing_graph_metadata_path`, `custom_routing_osm_place`, `custom_routing_osm_network_type`, `custom_routing_simplify_graph`
 - ingestion geographic bounds: `eu_min_lon`, `eu_max_lon`, `eu_min_lat`, `eu_max_lat`
 
 ## Environment Variables
@@ -27,6 +28,12 @@ Supported overrides:
 - `ORS_REQUIRE_API_KEY`
 - `ORS_DIRECTIONS_URL`
 - `ORS_FALLBACK_RADIUS_METERS`
+- `ROUTING_PROVIDER`
+- `CUSTOM_ROUTING_GRAPH_PATH`
+- `CUSTOM_ROUTING_GRAPH_METADATA_PATH`
+- `CUSTOM_ROUTING_OSM_PLACE`
+- `CUSTOM_ROUTING_OSM_NETWORK_TYPE`
+- `CUSTOM_ROUTING_SIMPLIFY_GRAPH`
 - `MAX_AVOID_POLYGONS`
 - `SIMPLIFY_TOLERANCE_DEGREES`
 - `EU_MIN_LON`
@@ -41,13 +48,26 @@ Supported overrides:
 - Path env values are `expanduser()`-normalized.
 - Settings are cached with `lru_cache(maxsize=1)`.
 
-## ORS Endpoint Resolution Rules
+## Routing Provider Resolution
+
+`ROUTING_PROVIDER` defaults to `openrouteservice`. It is normalized to lowercase and selects the routing provider implementation used by the route endpoint. Unsupported providers fail at route time with HTTP `500`.
+
+## OpenRouteService Endpoint Resolution
 
 1. Resolve remote URL from `ORS_DIRECTIONS_URL` (default: public ORS endpoint).
 2. Resolve local URL from `ORS_LOCAL_DIRECTIONS_URL`.
 3. If `ORS_USE_LOCAL=true` and local URL exists, active `ors_directions_url` becomes local URL.
 4. Otherwise active `ors_directions_url` is the remote URL.
 5. `ors_require_api_key` defaults to `false` in local mode and `true` otherwise, unless explicitly set with `ORS_REQUIRE_API_KEY`.
+
+## Custom Routing Graph Resolution
+
+1. `CUSTOM_ROUTING_GRAPH_PATH` defaults to `data/raw/osm/custom-routing.graphml`.
+2. `CUSTOM_ROUTING_GRAPH_METADATA_PATH` defaults to the graph path with `.metadata.json` suffix.
+3. `CUSTOM_ROUTING_OSM_PLACE`, when set, tells graph ingestion to download by OSM place name.
+4. If no place is configured, graph ingestion downloads by `EU_*` bounding box settings.
+5. `CUSTOM_ROUTING_OSM_NETWORK_TYPE` defaults to `drive`.
+6. `CUSTOM_ROUTING_SIMPLIFY_GRAPH` defaults to `true`.
 
 ## Reload Behavior
 

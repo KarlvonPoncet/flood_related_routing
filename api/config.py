@@ -23,6 +23,7 @@ class Settings:
     ors_require_api_key: bool
     ors_directions_url: str
     ors_request_timeout_seconds: float
+    routing_provider: str
     max_avoid_polygons: int
     simplify_tolerance_degrees: float
     ors_fallback_radius_meters: float
@@ -30,6 +31,11 @@ class Settings:
     eu_max_lon: float
     eu_min_lat: float
     eu_max_lat: float
+    custom_routing_graph_path: Path
+    custom_routing_graph_metadata_path: Path
+    custom_routing_osm_place: str | None
+    custom_routing_osm_network_type: str
+    custom_routing_simplify_graph: bool
 
 
 def _env_int(name: str, default: int) -> int:
@@ -82,6 +88,10 @@ def get_settings() -> Settings:
     raw_dir = _env_path("GLOFAS_RAW_DIR", root_dir / "data/raw/glofas")
     zip_path = _env_path("GLOFAS_ZIP_PATH", raw_dir / "glofas_slovenia.zip")
     extract_dir = _env_path("GLOFAS_EXTRACT_DIR", raw_dir / "extracted")
+    custom_routing_graph_path = _env_path(
+        "CUSTOM_ROUTING_GRAPH_PATH",
+        root_dir / "data/raw/osm/custom-routing.graphml",
+    )
     remote_ors_url = os.getenv(
         "ORS_DIRECTIONS_URL",
         "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
@@ -104,6 +114,7 @@ def get_settings() -> Settings:
         ors_require_api_key=ors_require_api_key,
         ors_directions_url=active_ors_url,
         ors_request_timeout_seconds=_env_float("ORS_REQUEST_TIMEOUT_SECONDS", 12.0),
+        routing_provider=os.getenv("ROUTING_PROVIDER", "openrouteservice").strip().lower(),
         max_avoid_polygons=_env_int("MAX_AVOID_POLYGONS", 200),
         simplify_tolerance_degrees=_env_float("SIMPLIFY_TOLERANCE_DEGREES", 0.005),
         ors_fallback_radius_meters=_env_float("ORS_FALLBACK_RADIUS_METERS", 2000.0),
@@ -111,6 +122,14 @@ def get_settings() -> Settings:
         eu_max_lon=_env_float("EU_MAX_LON", 45.0),
         eu_min_lat=_env_float("EU_MIN_LAT", 34.0),
         eu_max_lat=_env_float("EU_MAX_LAT", 72.0),
+        custom_routing_graph_path=custom_routing_graph_path,
+        custom_routing_graph_metadata_path=_env_path(
+            "CUSTOM_ROUTING_GRAPH_METADATA_PATH",
+            custom_routing_graph_path.with_suffix(".metadata.json"),
+        ),
+        custom_routing_osm_place=os.getenv("CUSTOM_ROUTING_OSM_PLACE"),
+        custom_routing_osm_network_type=os.getenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "drive"),
+        custom_routing_simplify_graph=_env_bool("CUSTOM_ROUTING_SIMPLIFY_GRAPH", True),
     )
 
 
