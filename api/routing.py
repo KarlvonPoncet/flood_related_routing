@@ -26,13 +26,29 @@ class RouteAvoidFloodsRequest(BaseModel):
     artifact_path: str | None = None
 
 
+class RouteFeatureGeometry(BaseModel):
+    type: str
+    coordinates: Any
+
+
+class RouteFeature(BaseModel):
+    type: str
+    geometry: RouteFeatureGeometry
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class RouteFeatureCollection(BaseModel):
+    type: str
+    features: list[RouteFeature]
+
+
 class RouteAvoidFloodsResponse(BaseModel):
     artifact_path: str
     high_risk_polygon_count: int
     avoidance_polygon_count: int
     using_avoid_polygons: bool
     using_custom_radiuses: bool
-    route: dict[str, Any]
+    route: RouteFeatureCollection
     warning: str | None = None
 
 

@@ -111,6 +111,10 @@ Response shape:
 }
 ```
 
+Contract notes:
+- The route endpoint uses explicit response models for metadata plus GeoJSON envelope (`FeatureCollection -> Feature -> geometry/properties`).
+- Malformed route envelope shapes are rejected before response serialization.
+
 Error conditions:
 - `400`: `artifact_path` fails the same path policy as `/artifact` (`..` traversal or absolute path outside allowed roots).
 - `503`: artifact missing while request-triggered ingestion is disabled.

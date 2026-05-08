@@ -7,6 +7,7 @@ from urllib import error
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
 from shapely.geometry import Point
 
 from api import config as config_module
@@ -635,6 +636,44 @@ def test_route_endpoint_rejects_invalid_provider_route_payload(
 
     assert exc_info.value.status_code == 502
     assert "expected GeoJSON FeatureCollection" in str(exc_info.value.detail)
+
+
+def test_route_response_model_accepts_expected_geojson_shape() -> None:
+    payload = {
+        "artifact_path": "/tmp/flood.geojson",
+        "high_risk_polygon_count": 2,
+        "avoidance_polygon_count": 1,
+        "using_avoid_polygons": True,
+        "using_custom_radiuses": False,
+        "route": _route_payload(),
+    }
+
+    model = routing_module.RouteAvoidFloodsResponse.model_validate(payload)
+    assert model.route.type == "FeatureCollection"
+    assert len(model.route.features) == 1
+
+
+def test_route_response_model_rejects_non_object_route_geometry() -> None:
+    payload = {
+        "artifact_path": "/tmp/flood.geojson",
+        "high_risk_polygon_count": 2,
+        "avoidance_polygon_count": 1,
+        "using_avoid_polygons": True,
+        "using_custom_radiuses": False,
+        "route": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": "not-an-object",
+                    "properties": {},
+                }
+            ],
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        routing_module.RouteAvoidFloodsResponse.model_validate(payload)
 
 
 def test_route_endpoint_rejects_parent_traversal_artifact_path() -> None:

@@ -21,6 +21,7 @@ Coverage includes:
 - request-ingestion gate behavior (`ALLOW_REQUEST_INGESTION=true|false`) for `/geojson/live`, `/artifact`, and route artifact resolution
 - routing provider fallback behavior for avoid-area, unroutable-point, and distance-limit failures
 - midpoint-nearest polygon selection integration (200 limit)
+- route response-model validation for expected GeoJSON envelope shape
 
 ### Artifact Service Unit Tests (`tests/test_artifact_service.py`)
 
