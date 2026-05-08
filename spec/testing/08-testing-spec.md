@@ -60,6 +60,13 @@ Coverage includes:
 - limit behavior
 - nearest-to-midpoint ordering behavior
 
+### Routing Service Unit Tests (`tests/test_routing_service.py`)
+
+Coverage includes:
+- ORS error classification helpers
+- mapping provider responses into structured exceptions (`AvoidAreaError`, `UnroutablePointError`, `DistanceLimitError`)
+- fallback behavior through provider-neutral route call hooks
+
 ### Live ORS Integration (`tests/test_routing_live.py`)
 
 - Marked `live_ors`

@@ -54,6 +54,8 @@ Headers:
 
 ## Fallback Strategy
 
+Fallback classification uses structured provider exceptions (for example `AvoidAreaError`, `UnroutablePointError`, `DistanceLimitError`) rather than parsing provider detail text in the orchestration layer.
+
 - avoid-area error:
 1. retry with progressively fewer nearest polygons (`n -> n/2 -> ...`) while avoid polygons remain valid
 2. if no valid reduced avoid geometry remains, drop avoid polygons and retry

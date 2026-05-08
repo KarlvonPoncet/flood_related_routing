@@ -23,6 +23,26 @@ class CoordinateLike(Protocol):
     lon: float
 
 
+class RoutingProviderError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class AvoidAreaError(RoutingProviderError):
+    pass
+
+
+class UnroutablePointError(RoutingProviderError):
+    pass
+
+
+class DistanceLimitError(RoutingProviderError):
+    def __init__(self, message: str, *, max_distance_meters: float | None = None) -> None:
+        super().__init__(message)
+        self.max_distance_meters = max_distance_meters
+
+
 class RoutingProvider(Protocol):
     name: str
     warning_label: str
@@ -35,18 +55,6 @@ class RoutingProvider(Protocol):
         avoid_polygons: dict[str, Any] | None,
         radiuses: list[float] | None = None,
     ) -> dict[str, Any]:
-        ...
-
-    def is_avoid_polygon_area_error(self, exc: HTTPException) -> bool:
-        ...
-
-    def is_unroutable_point_error(self, exc: HTTPException) -> bool:
-        ...
-
-    def is_distance_limit_error(self, exc: HTTPException) -> bool:
-        ...
-
-    def extract_distance_limit_meters(self, detail: str) -> float | None:
         ...
 
 
@@ -68,19 +76,6 @@ class OpenRouteServiceProvider:
             avoid_polygons=avoid_polygons,
             radiuses=radiuses,
         )
-
-    def is_avoid_polygon_area_error(self, exc: HTTPException) -> bool:
-        return is_ors_avoid_polygon_area_error(exc)
-
-    def is_unroutable_point_error(self, exc: HTTPException) -> bool:
-        return is_ors_unroutable_point_error(exc)
-
-    def is_distance_limit_error(self, exc: HTTPException) -> bool:
-        return is_ors_distance_limit_error(exc)
-
-    def extract_distance_limit_meters(self, detail: str) -> float | None:
-        return _extract_ors_distance_limit_meters(detail)
-
 
 def get_routing_provider() -> RoutingProvider:
     settings = get_settings()
@@ -150,19 +145,22 @@ def call_openrouteservice(
                 settings.ors_directions_url,
                 local_json_url,
             )
-            response_payload = _post_ors_json(
-                url=local_json_url,
-                body=fallback_body,
-                headers=_ors_headers(api_key),
-                timeout_seconds=settings.ors_request_timeout_seconds,
-            )
+            try:
+                response_payload = _post_ors_json(
+                    url=local_json_url,
+                    body=fallback_body,
+                    headers=_ors_headers(api_key),
+                    timeout_seconds=settings.ors_request_timeout_seconds,
+                )
+            except HTTPException as fallback_exc:
+                raise _to_provider_error(fallback_exc) from fallback_exc
         else:
             LOGGER.warning(
                 "ors_request_failed duration_ms=%.1f detail=%s",
                 (perf_counter() - request_started) * 1000,
                 exc.detail,
             )
-            raise
+            raise _to_provider_error(exc) from exc
 
     LOGGER.info("ors_request_succeeded duration_ms=%.1f", (perf_counter() - request_started) * 1000)
     return _normalize_ors_route_payload(response_payload)
@@ -271,6 +269,19 @@ def _extract_ors_distance_limit_meters(detail: str) -> float | None:
         return None
 
 
+def _to_provider_error(exc: HTTPException) -> RoutingProviderError:
+    if is_ors_avoid_polygon_area_error(exc):
+        return AvoidAreaError(str(exc.detail))
+    if is_ors_unroutable_point_error(exc):
+        return UnroutablePointError(str(exc.detail))
+    if is_ors_distance_limit_error(exc):
+        return DistanceLimitError(
+            str(exc.detail),
+            max_distance_meters=_extract_ors_distance_limit_meters(str(exc.detail)),
+        )
+    return RoutingProviderError(str(exc.detail))
+
+
 def _normalize_ors_route_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("type") == "FeatureCollection":
         return payload
@@ -327,23 +338,11 @@ def compute_flood_aware_route(
     fallback_radius_meters: float,
     call_route_fn: Callable[..., dict[str, Any]] | None = None,
     routing_provider: RoutingProvider | None = None,
-    area_error_fn: Callable[[HTTPException], bool] | None = None,
-    unroutable_error_fn: Callable[[HTTPException], bool] | None = None,
-    distance_error_fn: Callable[[HTTPException], bool] | None = None,
-    distance_limit_meters_fn: Callable[[str], float | None] | None = None,
 ) -> dict[str, Any]:
     if routing_provider is None:
         routing_provider = get_routing_provider()
     if call_route_fn is None:
         call_route_fn = routing_provider.route
-    if area_error_fn is None:
-        area_error_fn = routing_provider.is_avoid_polygon_area_error
-    if unroutable_error_fn is None:
-        unroutable_error_fn = routing_provider.is_unroutable_point_error
-    if distance_error_fn is None:
-        distance_error_fn = routing_provider.is_distance_limit_error
-    if distance_limit_meters_fn is None:
-        distance_limit_meters_fn = routing_provider.extract_distance_limit_meters
     provider_label = routing_provider.warning_label
 
     geometries = load_geometries_fn(artifact_path)
@@ -378,15 +377,15 @@ def compute_flood_aware_route(
                 (perf_counter() - attempt_started) * 1000,
             )
             break
-        except HTTPException as exc:
+        except AvoidAreaError:
             LOGGER.warning(
                 "flood_route_attempt_failed attempt=%d duration_ms=%.1f status=%s detail=%s",
                 attempt,
                 (perf_counter() - attempt_started) * 1000,
-                exc.status_code,
-                exc.detail,
+                502,
+                "avoid area rejected",
             )
-            if avoid_polygons is not None and area_error_fn(exc):
+            if avoid_polygons is not None:
                 next_geometry_count = active_geometry_count // 2
                 next_avoid_polygons: dict[str, Any] | None = None
 
@@ -419,7 +418,17 @@ def compute_flood_aware_route(
                 LOGGER.warning("flood_route_retrying_without_avoid_polygons")
                 continue
 
-            if radiuses is None and unroutable_error_fn(exc):
+            LOGGER.error("flood_route_failed_non_retriable attempt=%d", attempt)
+            raise HTTPException(status_code=502, detail="Provider rejected avoid polygons area")
+        except UnroutablePointError:
+            LOGGER.warning(
+                "flood_route_attempt_failed attempt=%d duration_ms=%.1f status=%s detail=%s",
+                attempt,
+                (perf_counter() - attempt_started) * 1000,
+                502,
+                "unroutable point",
+            )
+            if radiuses is None:
                 radiuses = [fallback_radius_meters, fallback_radius_meters]
                 route_warnings.append(
                     f"{provider_label} could not snap one or more waypoints with default radius; "
@@ -431,32 +440,43 @@ def compute_flood_aware_route(
                 )
                 continue
 
-            if distance_error_fn(exc):
-                if avoid_polygons is not None:
-                    avoid_polygons = None
-                    active_geometry_count = 0
-                    route_warnings.append(
-                        f"{provider_label} rejected route due to max distance constraint; "
-                        "retried without flood avoidance polygons."
-                    )
-                    LOGGER.warning("flood_route_retrying_without_avoid_polygons_due_to_distance_limit")
-                    continue
+            LOGGER.error("flood_route_failed_non_retriable attempt=%d", attempt)
+            raise HTTPException(status_code=502, detail="Provider could not route waypoints")
+        except DistanceLimitError as exc:
+            LOGGER.warning(
+                "flood_route_attempt_failed attempt=%d duration_ms=%.1f status=%s detail=%s",
+                attempt,
+                (perf_counter() - attempt_started) * 1000,
+                502,
+                exc.message,
+            )
+            if avoid_polygons is not None:
+                avoid_polygons = None
+                active_geometry_count = 0
+                route_warnings.append(
+                    f"{provider_label} rejected route due to max distance constraint; "
+                    "retried without flood avoidance polygons."
+                )
+                LOGGER.warning("flood_route_retrying_without_avoid_polygons_due_to_distance_limit")
+                continue
 
-                max_distance_meters = distance_limit_meters_fn(str(exc.detail))
-                if max_distance_meters is not None:
-                    detail = (
-                        f"Route exceeds configured {provider_label} maximum distance "
-                        f"({max_distance_meters:.0f} meters). "
-                        f"Choose closer points or increase the {provider_label} routing distance limit."
-                    )
-                else:
-                    detail = (
-                        f"Route exceeds configured {provider_label} maximum distance. "
-                        f"Choose closer points or increase the {provider_label} routing distance limit."
-                    )
-                LOGGER.warning("flood_route_failed_distance_limit max_distance_meters=%s", max_distance_meters)
-                raise HTTPException(status_code=422, detail=detail) from exc
-
+            if exc.max_distance_meters is not None:
+                detail = (
+                    f"Route exceeds configured {provider_label} maximum distance "
+                    f"({exc.max_distance_meters:.0f} meters). "
+                    f"Choose closer points or increase the {provider_label} routing distance limit."
+                )
+            else:
+                detail = (
+                    f"Route exceeds configured {provider_label} maximum distance. "
+                    f"Choose closer points or increase the {provider_label} routing distance limit."
+                )
+            LOGGER.warning("flood_route_failed_distance_limit max_distance_meters=%s", exc.max_distance_meters)
+            raise HTTPException(status_code=422, detail=detail) from exc
+        except RoutingProviderError as exc:
+            LOGGER.error("flood_route_failed_non_retriable attempt=%d", attempt)
+            raise HTTPException(status_code=502, detail=f"{provider_label} provider error: {exc.message}") from exc
+        except HTTPException:
             LOGGER.error("flood_route_failed_non_retriable attempt=%d", attempt)
             raise
 

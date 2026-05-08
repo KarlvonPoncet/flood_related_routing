@@ -394,10 +394,7 @@ def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(
         del start, end
         calls.append({"avoid_polygons": avoid_polygons, "radiuses": radiuses})
         if avoid_polygons is not None:
-            raise HTTPException(
-                status_code=502,
-                detail='OpenRouteService request failed (400): {"error":{"code":2003,"message":"The area of a polygon to avoid must not exceed 2.0E8 square meters."}}',
-            )
+            raise routing_service.AvoidAreaError("avoid polygon area too large")
         return _route_payload()
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
@@ -443,10 +440,7 @@ def test_route_endpoint_retries_with_reduced_polygons_on_area_error(
         count = avoid_polygons.get("count") if avoid_polygons else 0
         calls.append(count)
         if count > 50:
-            raise HTTPException(
-                status_code=502,
-                detail='OpenRouteService request failed (400): {"error":{"code":2003,"message":"The area of a polygon to avoid must not exceed 2.0E8 square meters."}}',
-            )
+            raise routing_service.AvoidAreaError("avoid polygon area too large")
         return _route_payload()
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
@@ -485,10 +479,7 @@ def test_route_endpoint_retries_with_custom_radiuses_when_ors_reports_unroutable
         del start, end, avoid_polygons
         calls.append({"radiuses": radiuses})
         if radiuses is None:
-            raise HTTPException(
-                status_code=502,
-                detail='OpenRouteService request failed (404): {"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters"}}',
-            )
+            raise routing_service.UnroutablePointError("unroutable point")
         return _route_payload()
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
@@ -524,7 +515,7 @@ def test_route_endpoint_re_raises_non_retriable_ors_error(
 
     def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         del start, end, avoid_polygons, radiuses
-        raise HTTPException(status_code=502, detail='OpenRouteService request failed (400): {"error":{"code":2099}}')
+        raise routing_service.RoutingProviderError("provider failure")
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
 
@@ -538,7 +529,7 @@ def test_route_endpoint_re_raises_non_retriable_ors_error(
         routing_module.route_avoid_flood_high_risk(req)
 
     assert exc_info.value.status_code == 502
-    assert '"code":2099' in str(exc_info.value.detail)
+    assert "provider error" in str(exc_info.value.detail)
 
 
 def test_route_endpoint_logs_timing_on_success(
@@ -594,7 +585,7 @@ def test_route_endpoint_logs_failure_timing_on_ors_502(
 
     def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         del start, end, avoid_polygons, radiuses
-        raise HTTPException(status_code=502, detail='OpenRouteService request failed (400): {"error":{"code":2099}}')
+        raise routing_service.RoutingProviderError("provider failure")
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
 
@@ -772,14 +763,7 @@ def test_route_endpoint_retries_without_avoid_polygons_on_distance_limit_error(
         del start, end, radiuses
         calls.append({"avoid_polygons": avoid_polygons})
         if avoid_polygons is not None:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    'OpenRouteService request failed (400): {"error":{"code":2004,'
-                    '"message":"Request parameters exceed the server configuration limits. '
-                    'The approximated route distance must not be greater than 100000.0 meters."}}'
-                ),
-            )
+            raise routing_service.DistanceLimitError("distance limit exceeded", max_distance_meters=100000.0)
         return _route_payload()
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
@@ -810,14 +794,7 @@ def test_route_endpoint_returns_422_when_route_exceeds_ors_distance_limit(
 
     def _call_ors(*, start, end, avoid_polygons, radiuses=None):
         del start, end, avoid_polygons, radiuses
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                'OpenRouteService request failed (400): {"error":{"code":2004,'
-                '"message":"Request parameters exceed the server configuration limits. '
-                'The approximated route distance must not be greater than 100000.0 meters."}}'
-            ),
-        )
+        raise routing_service.DistanceLimitError("distance limit exceeded", max_distance_meters=100000.0)
 
     monkeypatch.setattr(routing_module, "_call_routing_provider", _call_ors)
 

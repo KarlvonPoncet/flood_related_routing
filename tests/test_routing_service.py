@@ -78,6 +78,34 @@ def test_is_ors_distance_limit_error_detects_code_2004() -> None:
     assert routing_service.is_ors_distance_limit_error(exc) is True
 
 
+def test_to_provider_error_maps_ors_codes_to_structured_exceptions() -> None:
+    area_exc = HTTPException(
+        status_code=502,
+        detail='OpenRouteService request failed (400): {"error":{"code":2003,"message":"The area of a polygon to avoid must not exceed 2.0E8 square meters."}}',
+    )
+    unroutable_exc = HTTPException(
+        status_code=502,
+        detail='OpenRouteService request failed (404): {"error":{"code":2010,"message":"Could not find routable point within a radius of 350.0 meters"}}',
+    )
+    distance_exc = HTTPException(
+        status_code=502,
+        detail=(
+            'OpenRouteService request failed (400): {"error":{"code":2004,'
+            '"message":"Request parameters exceed the server configuration limits. '
+            'The approximated route distance must not be greater than 100000.0 meters."}}'
+        ),
+    )
+
+    mapped_area = routing_service._to_provider_error(area_exc)
+    mapped_unroutable = routing_service._to_provider_error(unroutable_exc)
+    mapped_distance = routing_service._to_provider_error(distance_exc)
+
+    assert isinstance(mapped_area, routing_service.AvoidAreaError)
+    assert isinstance(mapped_unroutable, routing_service.UnroutablePointError)
+    assert isinstance(mapped_distance, routing_service.DistanceLimitError)
+    assert mapped_distance.max_distance_meters == 100000.0
+
+
 def test_get_routing_provider_returns_openrouteservice_by_default() -> None:
     provider = routing_service.get_routing_provider()
     assert provider.name == "openrouteservice"
@@ -109,15 +137,12 @@ def test_compute_flood_aware_route_logs_attempts_and_area_fallback(caplog: pytes
 
     attempts: list[int] = []
 
-    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+    def _call_route(*, start, end, avoid_polygons, radiuses=None):
         del start, end, radiuses
         count = avoid_polygons.get("count") if avoid_polygons else 0
         attempts.append(count)
         if count > 1:
-            raise HTTPException(
-                status_code=502,
-                detail='OpenRouteService request failed (400): {"error":{"code":2003,"message":"The area of a polygon to avoid must not exceed 2.0E8 square meters."}}',
-            )
+            raise routing_service.AvoidAreaError("avoid polygon area too large")
         return {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
 
     with caplog.at_level("INFO"):
@@ -127,11 +152,8 @@ def test_compute_flood_aware_route_logs_attempts_and_area_fallback(caplog: pytes
             artifact_path=Path("/tmp/ignored.geojson"),
             load_geometries_fn=lambda _: [object(), object(), object(), object()],
             build_avoid_fn=_build_avoid,
-            call_route_fn=_call_ors,
+            call_route_fn=_call_route,
             fallback_radius_meters=2000.0,
-            area_error_fn=routing_service.is_ors_avoid_polygon_area_error,
-            unroutable_error_fn=routing_service.is_ors_unroutable_point_error,
-            distance_error_fn=routing_service.is_ors_distance_limit_error,
         )
 
     assert attempts == [4, 2, 1]
@@ -171,16 +193,9 @@ def test_compute_flood_aware_route_returns_422_on_distance_limit_without_avoidan
             self.lat = lat
             self.lon = lon
 
-    def _call_ors(*, start, end, avoid_polygons, radiuses=None):
+    def _call_route(*, start, end, avoid_polygons, radiuses=None):
         del start, end, avoid_polygons, radiuses
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                'OpenRouteService request failed (400): {"error":{"code":2004,'
-                '"message":"Request parameters exceed the server configuration limits. '
-                'The approximated route distance must not be greater than 100000.0 meters."}}'
-            ),
-        )
+        raise routing_service.DistanceLimitError("distance limit exceeded", max_distance_meters=100000.0)
 
     with pytest.raises(HTTPException) as exc_info:
         routing_service.compute_flood_aware_route(
@@ -189,11 +204,8 @@ def test_compute_flood_aware_route_returns_422_on_distance_limit_without_avoidan
             artifact_path=Path("/tmp/ignored.geojson"),
             load_geometries_fn=lambda _: [],
             build_avoid_fn=lambda geoms: None,
-            call_route_fn=_call_ors,
+            call_route_fn=_call_route,
             fallback_radius_meters=2000.0,
-            area_error_fn=routing_service.is_ors_avoid_polygon_area_error,
-            unroutable_error_fn=routing_service.is_ors_unroutable_point_error,
-            distance_error_fn=routing_service.is_ors_distance_limit_error,
         )
 
     assert exc_info.value.status_code == 422
