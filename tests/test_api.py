@@ -638,6 +638,46 @@ def test_route_endpoint_rejects_invalid_provider_route_payload(
     assert "expected GeoJSON FeatureCollection" in str(exc_info.value.detail)
 
 
+def test_route_endpoint_rejects_feature_collection_without_linestring(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "flood.geojson"
+    artifact.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    monkeypatch.setattr(routing_module, "_load_high_risk_geometries", lambda p: [object()])
+    monkeypatch.setattr(
+        routing_module,
+        "_build_avoid_polygons",
+        lambda geoms: {"type": "Polygon", "coordinates": [[[14.0, 46.0], [14.1, 46.0], [14.0, 46.1], [14.0, 46.0]]]},
+    )
+    monkeypatch.setattr(
+        routing_module,
+        "_call_routing_provider",
+        lambda *, start, end, avoid_polygons, radiuses=None: {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [14.5, 46.0]},
+                    "properties": {},
+                }
+            ],
+        },
+    )
+
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        artifact_path=str(artifact),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        routing_module.route_avoid_flood_high_risk(req)
+
+    assert exc_info.value.status_code == 502
+    assert "at least one LineString" in str(exc_info.value.detail)
+
+
 def test_route_response_model_accepts_expected_geojson_shape() -> None:
     payload = {
         "artifact_path": "/tmp/flood.geojson",

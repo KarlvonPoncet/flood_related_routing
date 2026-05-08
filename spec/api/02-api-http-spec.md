@@ -114,6 +114,7 @@ Response shape:
 Contract notes:
 - The route endpoint uses explicit response models for metadata plus GeoJSON envelope (`FeatureCollection -> Feature -> geometry/properties`).
 - Malformed route envelope shapes are rejected before response serialization.
+- Provider route payload is additionally validated to ensure at least one `LineString` feature is present and renderable.
 
 Error conditions:
 - `400`: `artifact_path` fails the same path policy as `/artifact` (`..` traversal or absolute path outside allowed roots).
@@ -122,6 +123,7 @@ Error conditions:
 - `500`: artifact parsing failures.
 - `422`: route distance exceeds provider maximum distance.
 - `502`: provider/network/response failures not resolved by fallback path.
+- `502`: provider response payload is not a renderable route `FeatureCollection` with a `LineString`.
 
 ## Static Asset Serving
 

@@ -163,14 +163,22 @@ def _validate_route_response(result: dict[str, Any]) -> None:
     if not isinstance(features, list) or not features:
         raise HTTPException(status_code=502, detail="Invalid route response: route has no features")
 
-    first_feature = features[0]
-    if not isinstance(first_feature, dict):
-        raise HTTPException(status_code=502, detail="Invalid route response: route feature must be an object")
+    has_linestring = False
+    for feature in features:
+        if not isinstance(feature, dict):
+            raise HTTPException(status_code=502, detail="Invalid route response: route feature must be an object")
+        geometry = feature.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+        if geometry.get("type") != "LineString":
+            continue
+        coordinates = geometry.get("coordinates")
+        if isinstance(coordinates, list) and coordinates:
+            has_linestring = True
+            break
 
-    geometry = first_feature.get("geometry")
-    if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
-        raise HTTPException(status_code=502, detail="Invalid route response: route geometry must be a LineString")
-
-    coordinates = geometry.get("coordinates")
-    if not isinstance(coordinates, list) or not coordinates:
-        raise HTTPException(status_code=502, detail="Invalid route response: route coordinates are empty")
+    if not has_linestring:
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid route response: expected at least one LineString feature with coordinates",
+        )
