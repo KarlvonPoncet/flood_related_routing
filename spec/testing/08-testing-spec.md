@@ -15,6 +15,7 @@ Coverage includes:
 - artifact retrieval/build flow
 - artifact path hardening (`..` traversal rejection and absolute-path allowlist enforcement)
 - geojson live flow
+- runtime settings reload behavior for `DEFAULT_ARTIFACT_PATH` in `GET /geojson/live`
 - routing endpoint orchestration
 - route `artifact_path` hardening with the same policy as `/artifact`
 - request-ingestion gate behavior (`ALLOW_REQUEST_INGESTION=true|false`) for `/geojson/live`, `/artifact`, and route artifact resolution
@@ -41,6 +42,7 @@ Coverage includes:
 - extract ZIP behavior
 - missing cfgrib error handling
 - process edge cases (missing coords, NaNs, low values)
+- runtime settings reload behavior for ingestion output path resolution
 
 ### Config Tests (`tests/test_config.py`)
 

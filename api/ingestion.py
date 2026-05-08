@@ -11,28 +11,15 @@ import numpy as np
 import xarray as xr
 from shapely.geometry import Point
 
-from api.config import get_settings
+from api.config import Settings, get_settings
 
 LOGGER = logging.getLogger(__name__)
 
-SETTINGS = get_settings()
-ROOT_DIR = SETTINGS.root_dir
-OUT = SETTINGS.default_artifact
 
-RAW_DIR = SETTINGS.raw_dir
-ZIP_PATH = SETTINGS.zip_path
-EXTRACT_DIR = SETTINGS.extract_dir
-EU_MIN_LON = SETTINGS.eu_min_lon
-EU_MAX_LON = SETTINGS.eu_max_lon
-EU_MIN_LAT = SETTINGS.eu_min_lat
-EU_MAX_LAT = SETTINGS.eu_max_lat
-
-OUT.parent.mkdir(parents=True, exist_ok=True)
-RAW_DIR.mkdir(parents=True, exist_ok=True)
-EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def download(target_path: Path = ZIP_PATH) -> Path:
+def download(target_path: Path | None = None, *, settings: Settings | None = None) -> Path:
+    settings = settings or get_settings()
+    target_path = target_path or settings.zip_path
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     client = cdsapi.Client()
 
     # Try today, yesterday, day before...
@@ -68,14 +55,24 @@ def download(target_path: Path = ZIP_PATH) -> Path:
     raise RuntimeError("No valid GloFAS forecast found in the last 7 days.")
 
 
-def extract_zip(zip_path: Path = ZIP_PATH) -> Path:
-    for old in EXTRACT_DIR.glob("*"):
+def extract_zip(
+    zip_path: Path | None = None,
+    *,
+    extract_dir: Path | None = None,
+    settings: Settings | None = None,
+) -> Path:
+    settings = settings or get_settings()
+    zip_path = zip_path or settings.zip_path
+    extract_dir = extract_dir or settings.extract_dir
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    for old in extract_dir.glob("*"):
         old.unlink()
 
     with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(EXTRACT_DIR)
+        z.extractall(extract_dir)
 
-    grib_files = list(EXTRACT_DIR.rglob("*.grib")) + list(EXTRACT_DIR.rglob("*.grib2"))
+    grib_files = list(extract_dir.rglob("*.grib")) + list(extract_dir.rglob("*.grib2"))
 
     if not grib_files:
         raise RuntimeError("No GRIB files found in downloaded ZIP.")
@@ -125,11 +122,14 @@ def _to_2d_grid(data_array: xr.DataArray) -> np.ndarray:
     return reduced.values
 
 
-def _is_in_europe(lat: float, lon: float) -> bool:
-    return EU_MIN_LAT <= lat <= EU_MAX_LAT and EU_MIN_LON <= lon <= EU_MAX_LON
+def _is_in_europe(lat: float, lon: float, *, settings: Settings) -> bool:
+    return settings.eu_min_lat <= lat <= settings.eu_max_lat and settings.eu_min_lon <= lon <= settings.eu_max_lon
 
 
-def process(grib_path: Path, out_path: Path = OUT) -> Path:
+def process(grib_path: Path, out_path: Path | None = None, *, settings: Settings | None = None) -> Path:
+    settings = settings or get_settings()
+    out_path = out_path or settings.default_artifact
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     ds = open_glofas_grib(grib_path)
 
     var_name = _get_main_variable(ds)
@@ -149,7 +149,7 @@ def process(grib_path: Path, out_path: Path = OUT) -> Path:
             lat = float(lats[i])
             lon = float(lons[j])
 
-            if not _is_in_europe(lat=lat, lon=lon):
+            if not _is_in_europe(lat=lat, lon=lon, settings=settings):
                 continue
 
             val = discharge[i][j]
@@ -194,17 +194,23 @@ def process(grib_path: Path, out_path: Path = OUT) -> Path:
     return out_path
 
 
-def run() -> Path:
-    zip_path = download()
-    grib_path = extract_zip(zip_path)
-    return process(grib_path=grib_path, out_path=OUT)
+def run(*, settings: Settings | None = None) -> Path:
+    settings = settings or get_settings()
+    zip_path = download(settings=settings)
+    grib_path = extract_zip(zip_path=zip_path, settings=settings)
+    return process(grib_path=grib_path, out_path=settings.default_artifact, settings=settings)
 
 
 def ingest_file(source: str, target: str) -> Path:
     # `source` is reserved for future multi-source ingestion. For now we run
     # the GloFAS flow and write to the requested target location.
     del source
-    return process(grib_path=extract_zip(download()), out_path=Path(target))
+    settings = get_settings()
+    return process(
+        grib_path=extract_zip(zip_path=download(settings=settings), settings=settings),
+        out_path=Path(target),
+        settings=settings,
+    )
 
 
 if __name__ == "__main__":

@@ -61,33 +61,29 @@ def test_open_glofas_grib_wraps_missing_cfgrib_error(monkeypatch: pytest.MonkeyP
 
 def test_extract_zip_raises_when_no_grib_files(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     extract_dir = tmp_path / "extracted"
     extract_dir.mkdir()
-    monkeypatch.setattr(ingestion, "EXTRACT_DIR", extract_dir)
 
     zip_path = tmp_path / "sample.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("readme.txt", "not a grib file")
 
     with pytest.raises(RuntimeError, match="No GRIB files found"):
-        ingestion.extract_zip(zip_path)
+        ingestion.extract_zip(zip_path=zip_path, extract_dir=extract_dir)
 
 
 def test_extract_zip_returns_first_grib_file(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     extract_dir = tmp_path / "extracted"
     extract_dir.mkdir()
-    monkeypatch.setattr(ingestion, "EXTRACT_DIR", extract_dir)
 
     zip_path = tmp_path / "sample.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("forecast.grib2", "binary")
 
-    grib_path = ingestion.extract_zip(zip_path)
+    grib_path = ingestion.extract_zip(zip_path=zip_path, extract_dir=extract_dir)
 
     assert grib_path == extract_dir / "forecast.grib2"
     assert grib_path.exists()
@@ -205,3 +201,59 @@ def test_process_handles_all_nan_grid_with_empty_feature_collection(
     assert written == out_path
     assert out_path.exists()
     assert captured["features"] == []
+
+
+def test_run_uses_runtime_default_artifact_after_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = tmp_path / "first.geojson"
+    second = tmp_path / "second.geojson"
+    zip_path = tmp_path / "fake.zip"
+    grib_path = tmp_path / "fake.grib2"
+    raw_dir = tmp_path / "raw"
+    extract_dir = tmp_path / "extract"
+    raw_dir.mkdir()
+    extract_dir.mkdir()
+
+    def _download(*, target_path=None, settings=None):
+        del target_path, settings
+        return zip_path
+
+    def _extract_zip(*, zip_path=None, extract_dir=None, settings=None):
+        del zip_path, extract_dir, settings
+        return grib_path
+
+    observed_out_paths: list[Path] = []
+
+    def _process(*, grib_path, out_path=None, settings=None):
+        del grib_path, settings
+        assert out_path is not None
+        observed_out_paths.append(Path(out_path))
+        Path(out_path).write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+        return Path(out_path)
+
+    monkeypatch.setattr(ingestion, "download", _download)
+    monkeypatch.setattr(ingestion, "extract_zip", _extract_zip)
+    monkeypatch.setattr(ingestion, "process", _process)
+
+    monkeypatch.setenv("APP_ROOT_DIR", str(tmp_path))
+    monkeypatch.setenv("GLOFAS_RAW_DIR", str(raw_dir))
+    monkeypatch.setenv("GLOFAS_EXTRACT_DIR", str(extract_dir))
+
+    from api import config as config_module
+
+    try:
+        monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(first))
+        config_module.reload_settings()
+        out1 = ingestion.run()
+        assert out1 == first
+
+        monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(second))
+        config_module.reload_settings()
+        out2 = ingestion.run()
+        assert out2 == second
+    finally:
+        config_module.reload_settings()
+
+    assert observed_out_paths == [first, second]

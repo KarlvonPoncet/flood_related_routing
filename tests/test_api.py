@@ -45,12 +45,16 @@ def test_frontend_returns_file_response_when_present(
 ) -> None:
     index = tmp_path / "index.html"
     index.write_text("<html><body>ok</body></html>", encoding="utf-8")
-    monkeypatch.setattr(app_module, "FRONTEND_INDEX", index)
+    monkeypatch.setenv("FRONTEND_INDEX_PATH", str(index))
+    config_module.reload_settings()
 
-    resp = app_module.frontend()
+    try:
+        resp = app_module.frontend()
 
-    assert isinstance(resp, FileResponse)
-    assert Path(resp.path) == index
+        assert isinstance(resp, FileResponse)
+        assert Path(resp.path) == index
+    finally:
+        config_module.reload_settings()
 
 
 def test_frontend_raises_404_when_missing(
@@ -58,13 +62,17 @@ def test_frontend_raises_404_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     missing = tmp_path / "missing.html"
-    monkeypatch.setattr(app_module, "FRONTEND_INDEX", missing)
+    monkeypatch.setenv("FRONTEND_INDEX_PATH", str(missing))
+    config_module.reload_settings()
 
-    with pytest.raises(HTTPException) as exc_info:
-        app_module.frontend()
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.frontend()
 
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "Frontend not found"
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail == "Frontend not found"
+    finally:
+        config_module.reload_settings()
 
 
 def test_geojson_live_returns_existing_artifact(
@@ -74,27 +82,31 @@ def test_geojson_live_returns_existing_artifact(
     artifact = tmp_path / "live.geojson"
     payload = {"type": "FeatureCollection", "features": []}
     artifact.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(artifact))
+    config_module.reload_settings()
 
     def _unexpected_ingest(source: str, target: str) -> Path:
         raise AssertionError("ingest_file should not be called when artifact exists")
 
     monkeypatch.setattr(app_module, "ingest_file", _unexpected_ingest)
 
-    resp = app_module.geojson_live()
+    try:
+        resp = app_module.geojson_live()
 
-    assert isinstance(resp, JSONResponse)
-    assert _json_response_payload(resp) == payload
+        assert isinstance(resp, JSONResponse)
+        assert _json_response_payload(resp) == payload
+    finally:
+        config_module.reload_settings()
 
 
 def test_geojson_live_runs_ingestion_when_artifact_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
-    config_module.reload_settings()
     artifact = tmp_path / "live.geojson"
-    monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(artifact))
+    config_module.reload_settings()
 
     observed: dict[str, str] = {}
 
@@ -122,13 +134,17 @@ def test_geojson_live_raises_500_for_invalid_json(
 ) -> None:
     artifact = tmp_path / "live.geojson"
     artifact.write_text("{invalid-json", encoding="utf-8")
-    monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
+    monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(artifact))
+    config_module.reload_settings()
 
-    with pytest.raises(HTTPException) as exc_info:
-        app_module.geojson_live()
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.geojson_live()
 
-    assert exc_info.value.status_code == 500
-    assert "Failed to read GeoJSON" in str(exc_info.value.detail)
+        assert exc_info.value.status_code == 500
+        assert "Failed to read GeoJSON" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
 
 
 def test_artifact_returns_existing_file(
@@ -280,9 +296,8 @@ def test_geojson_live_returns_503_when_artifact_missing_and_request_ingestion_di
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "false")
+    monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(tmp_path / "live-missing.geojson"))
     config_module.reload_settings()
-    artifact = tmp_path / "live-missing.geojson"
-    monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
 
     try:
         with pytest.raises(HTTPException) as exc_info:
@@ -308,6 +323,30 @@ def test_artifact_returns_503_when_missing_and_request_ingestion_disabled(
 
         assert exc_info.value.status_code == 503
         assert "request-triggered ingestion is disabled" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
+
+
+def test_geojson_live_uses_runtime_default_artifact_after_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = tmp_path / "first.geojson"
+    second = tmp_path / "second.geojson"
+    first.write_text('{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null,"properties":{"id":"first"}}]}', encoding="utf-8")
+    second.write_text('{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null,"properties":{"id":"second"}}]}', encoding="utf-8")
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "false")
+
+    try:
+        monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(first))
+        config_module.reload_settings()
+        first_resp = app_module.geojson_live()
+        assert _json_response_payload(first_resp)["features"][0]["properties"]["id"] == "first"
+
+        monkeypatch.setenv("DEFAULT_ARTIFACT_PATH", str(second))
+        config_module.reload_settings()
+        second_resp = app_module.geojson_live()
+        assert _json_response_payload(second_resp)["features"][0]["properties"]["id"] == "second"
     finally:
         config_module.reload_settings()
 

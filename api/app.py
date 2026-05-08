@@ -19,10 +19,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-SETTINGS = get_settings()
-DEFAULT_ARTIFACT = SETTINGS.default_artifact
-FRONTEND_INDEX = SETTINGS.frontend_index
-FRONTEND_DIR = FRONTEND_INDEX.parent
+FRONTEND_DIR = get_settings().frontend_index.parent
 
 app.mount("/static/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend-static")
 
@@ -34,16 +31,17 @@ def health() -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def frontend() -> FileResponse:
-    if not FRONTEND_INDEX.exists():
+    frontend_index = get_settings().frontend_index
+    if not frontend_index.exists():
         raise HTTPException(status_code=404, detail="Frontend not found")
-    return FileResponse(path=FRONTEND_INDEX, media_type="text/html")
+    return FileResponse(path=frontend_index, media_type="text/html")
 
 
 @app.get("/geojson/live")
 def geojson_live(source: str = Query("default", description="Ingestion source")) -> JSONResponse:
     settings = get_settings()
     artifact_path = artifact_service.ensure_artifact_exists(
-        artifact_path=DEFAULT_ARTIFACT,
+        artifact_path=settings.default_artifact,
         source=source,
         ingest_fn=ingest_file,
         allow_request_ingestion=settings.allow_request_ingestion,

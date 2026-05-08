@@ -75,3 +75,5 @@ Supported overrides:
 ## Reload Behavior
 
 - `reload_settings()` clears the cached settings object (used by tests).
+- Runtime code paths resolve settings when request/job work starts instead of relying on import-time copied module constants.
+- `DEFAULT_ARTIFACT_PATH`, `MAX_AVOID_POLYGONS`, and `SIMPLIFY_TOLERANCE_DEGREES` changes take effect after `reload_settings()` without module re-imports.
