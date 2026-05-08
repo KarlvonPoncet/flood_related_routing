@@ -57,12 +57,15 @@ Failure:
 
 ### 2. Extract (`extract_zip`)
 
-- Clears extraction directory.
-- Extracts ZIP content.
+- Clears extraction directory recursively (including nested folders/files).
+- Validates every ZIP member path resolves under the extraction directory before extraction.
+- Rejects unsafe ZIP archives (path traversal members such as `../...`).
+- Extracts ZIP content only after validation passes.
 - Selects first `.grib`/`.grib2` file recursively.
 
 Failure:
 - Raises `RuntimeError` if no GRIB file found.
+- Raises `RuntimeError` when ZIP contains unsafe member paths.
 
 ### 3. Open GRIB (`open_glofas_grib`)
 

@@ -89,6 +89,33 @@ def test_extract_zip_returns_first_grib_file(
     assert grib_path.exists()
 
 
+def test_extract_zip_clears_nested_files_before_extracting(tmp_path: Path) -> None:
+    extract_dir = tmp_path / "extracted"
+    nested = extract_dir / "stale" / "old"
+    nested.mkdir(parents=True)
+    (nested / "stale.txt").write_text("stale", encoding="utf-8")
+
+    zip_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("fresh.grib2", "binary")
+
+    grib_path = ingestion.extract_zip(zip_path=zip_path, extract_dir=extract_dir)
+
+    assert grib_path == extract_dir / "fresh.grib2"
+    assert not (extract_dir / "stale").exists()
+
+
+def test_extract_zip_rejects_path_traversal_member(tmp_path: Path) -> None:
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    zip_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("../escape.grib2", "binary")
+
+    with pytest.raises(RuntimeError, match="Unsafe ZIP member path"):
+        ingestion.extract_zip(zip_path=zip_path, extract_dir=extract_dir)
+
+
 def test_process_raises_when_lat_lon_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     ds = xr.Dataset({"dis24": (("x", "y"), np.ones((2, 2)))})
     monkeypatch.setattr(ingestion, "open_glofas_grib", lambda _: ds)

@@ -40,6 +40,7 @@ Coverage includes:
 Coverage includes:
 - variable selection and dimension reduction helpers
 - extract ZIP behavior
+- extract ZIP nested cleanup and path traversal rejection behavior
 - missing cfgrib error handling
 - process edge cases (missing coords, NaNs, low values)
 - runtime settings reload behavior for ingestion output path resolution

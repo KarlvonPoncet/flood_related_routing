@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 import logging
 from pathlib import Path
+import shutil
 import zipfile
 
 import cdsapi
@@ -66,11 +67,17 @@ def extract_zip(
     extract_dir = extract_dir or settings.extract_dir
     extract_dir.mkdir(parents=True, exist_ok=True)
 
-    for old in extract_dir.glob("*"):
-        old.unlink()
+    _clear_directory(extract_dir)
 
     with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(extract_dir)
+        base_dir = extract_dir.resolve(strict=False)
+        members = z.infolist()
+        for member in members:
+            member_target = (extract_dir / member.filename).resolve(strict=False)
+            if not (member_target == base_dir or member_target.is_relative_to(base_dir)):
+                raise RuntimeError(f"Unsafe ZIP member path detected: {member.filename!r}")
+        for member in members:
+            z.extract(member, extract_dir)
 
     grib_files = list(extract_dir.rglob("*.grib")) + list(extract_dir.rglob("*.grib2"))
 
@@ -78,6 +85,15 @@ def extract_zip(
         raise RuntimeError("No GRIB files found in downloaded ZIP.")
 
     return grib_files[0]
+
+
+def _clear_directory(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for item in directory.iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
 
 
 def open_glofas_grib(grib_path: Path) -> xr.Dataset:
