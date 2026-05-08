@@ -123,3 +123,9 @@ Error conditions:
 
 - Mounted static path: `/static/frontend`
 - Serves files from `frontend/`.
+
+## CORS
+
+- Browser CORS origins come from `CORS_ALLOW_ORIGINS`.
+- Default configuration is local-development origins (not wildcard).
+- To allow all origins, set `CORS_ALLOW_ORIGINS=*` explicitly.

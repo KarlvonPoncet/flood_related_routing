@@ -37,6 +37,7 @@ class Settings:
     custom_routing_osm_network_type: str
     custom_routing_simplify_graph: bool
     allow_request_ingestion: bool
+    cors_allow_origins: tuple[str, ...]
 
 
 def _env_int(name: str, default: int) -> int:
@@ -79,6 +80,16 @@ def _env_bool(name: str, default: bool) -> bool:
         f"Environment variable {name} must be a boolean "
         f"(one of: 1/0, true/false, yes/no, on/off), got: {raw!r}"
     )
+
+
+def _env_csv_list(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    items = tuple(part.strip() for part in raw.split(",") if part.strip())
+    if not items:
+        raise ValueError(f"Environment variable {name} must contain at least one origin")
+    return items
 
 
 @lru_cache(maxsize=1)
@@ -132,6 +143,17 @@ def get_settings() -> Settings:
         custom_routing_osm_network_type=os.getenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "drive"),
         custom_routing_simplify_graph=_env_bool("CUSTOM_ROUTING_SIMPLIFY_GRAPH", True),
         allow_request_ingestion=_env_bool("ALLOW_REQUEST_INGESTION", False),
+        cors_allow_origins=_env_csv_list(
+            "CORS_ALLOW_ORIGINS",
+            (
+                "http://127.0.0.1:8000",
+                "http://localhost:8000",
+                "http://127.0.0.1:5173",
+                "http://localhost:5173",
+                "http://127.0.0.1:3000",
+                "http://localhost:3000",
+            ),
+        ),
     )
 
 

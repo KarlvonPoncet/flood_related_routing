@@ -13,9 +13,10 @@ from api.services import artifact_service, path_policy_service
 
 app = FastAPI(title="Ingestion API")
 app.include_router(routing_router)
+_SETTINGS = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(_SETTINGS.cors_allow_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )

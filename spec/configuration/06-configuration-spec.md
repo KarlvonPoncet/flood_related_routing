@@ -10,6 +10,7 @@ Centralized runtime settings via `api/config.py`.
 - path settings: `root_dir`, `default_artifact`, `frontend_index`, `raw_dir`, `zip_path`, `extract_dir`
 - routing settings: `routing_provider`, `max_avoid_polygons`, `simplify_tolerance_degrees`
 - request ingestion setting: `allow_request_ingestion`
+- CORS setting: `cors_allow_origins`
 - OpenRouteService settings: `ors_api_key`, `ors_use_local`, `ors_local_directions_url`, `ors_require_api_key`, `ors_directions_url`, `ors_fallback_radius_meters`
 - custom routing graph settings: `custom_routing_graph_path`, `custom_routing_graph_metadata_path`, `custom_routing_osm_place`, `custom_routing_osm_network_type`, `custom_routing_simplify_graph`
 - ingestion geographic bounds: `eu_min_lon`, `eu_max_lon`, `eu_min_lat`, `eu_max_lat`
@@ -42,6 +43,7 @@ Supported overrides:
 - `EU_MIN_LAT`
 - `EU_MAX_LAT`
 - `ALLOW_REQUEST_INGESTION`
+- `CORS_ALLOW_ORIGINS`
 
 ## Parsing Rules
 
@@ -50,6 +52,7 @@ Supported overrides:
 - Path env values are `expanduser()`-normalized.
 - Settings are cached with `lru_cache(maxsize=1)`.
 - `ALLOW_REQUEST_INGESTION` defaults to `false` (production-safe mode); set to `true` for local/dev request-triggered rebuilds.
+- `CORS_ALLOW_ORIGINS` is comma-separated and defaults to local development origins (`127.0.0.1`/`localhost` on common frontend ports). Use `*` only when explicitly configured.
 
 ## Routing Provider Resolution
 

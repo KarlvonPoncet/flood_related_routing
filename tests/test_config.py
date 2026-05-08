@@ -21,6 +21,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "bike")
     monkeypatch.setenv("CUSTOM_ROUTING_SIMPLIFY_GRAPH", "false")
     monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "https://frontend.example,https://admin.example")
     monkeypatch.setenv("MAX_AVOID_POLYGONS", "123")
     monkeypatch.setenv("SIMPLIFY_TOLERANCE_DEGREES", "0.25")
     monkeypatch.setenv("EU_MIN_LAT", "10.0")
@@ -41,6 +42,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.custom_routing_osm_network_type == "bike"
     assert settings.custom_routing_simplify_graph is False
     assert settings.allow_request_ingestion is True
+    assert settings.cors_allow_origins == ("https://frontend.example", "https://admin.example")
     assert settings.max_avoid_polygons == 123
     assert settings.simplify_tolerance_degrees == 0.25
     assert settings.eu_min_lat == 10.0
@@ -87,5 +89,26 @@ def test_get_settings_defaults_request_ingestion_to_disabled(monkeypatch: pytest
 
     settings = config.get_settings()
     assert settings.allow_request_ingestion is False
+
+    config.reload_settings()
+
+
+def test_get_settings_defaults_cors_to_local_dev_origins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    config.reload_settings()
+
+    settings = config.get_settings()
+    assert "http://127.0.0.1:8000" in settings.cors_allow_origins
+    assert "http://localhost:5173" in settings.cors_allow_origins
+
+    config.reload_settings()
+
+
+def test_get_settings_rejects_empty_cors_origin_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", " ,  , ")
+    config.reload_settings()
+
+    with pytest.raises(ValueError, match="CORS_ALLOW_ORIGINS must contain at least one origin"):
+        config.get_settings()
 
     config.reload_settings()

@@ -53,6 +53,7 @@ Coverage includes:
 - `ROUTING_PROVIDER` normalization
 - unsupported routing provider rejection
 - request-ingestion flag parsing/default behavior
+- CORS allow-origin parsing/default behavior
 
 ### Polygon Selection Tests (`tests/test_polygon_selection_service.py`)
 
