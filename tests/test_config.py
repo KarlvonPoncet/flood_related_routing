@@ -20,6 +20,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("CUSTOM_ROUTING_OSM_PLACE", "Slovenia")
     monkeypatch.setenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "bike")
     monkeypatch.setenv("CUSTOM_ROUTING_SIMPLIFY_GRAPH", "false")
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
     monkeypatch.setenv("MAX_AVOID_POLYGONS", "123")
     monkeypatch.setenv("SIMPLIFY_TOLERANCE_DEGREES", "0.25")
     monkeypatch.setenv("EU_MIN_LAT", "10.0")
@@ -39,6 +40,7 @@ def test_get_settings_uses_env_overrides(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.custom_routing_osm_place == "Slovenia"
     assert settings.custom_routing_osm_network_type == "bike"
     assert settings.custom_routing_simplify_graph is False
+    assert settings.allow_request_ingestion is True
     assert settings.max_avoid_polygons == 123
     assert settings.simplify_tolerance_degrees == 0.25
     assert settings.eu_min_lat == 10.0
@@ -75,5 +77,15 @@ def test_get_settings_raises_on_invalid_boolean_env(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(ValueError, match="ORS_USE_LOCAL must be a boolean"):
         config.get_settings()
+
+    config.reload_settings()
+
+
+def test_get_settings_defaults_request_ingestion_to_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALLOW_REQUEST_INGESTION", raising=False)
+    config.reload_settings()
+
+    settings = config.get_settings()
+    assert settings.allow_request_ingestion is False
 
     config.reload_settings()

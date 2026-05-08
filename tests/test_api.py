@@ -91,6 +91,8 @@ def test_geojson_live_runs_ingestion_when_artifact_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    config_module.reload_settings()
     artifact = tmp_path / "live.geojson"
     monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
 
@@ -105,10 +107,13 @@ def test_geojson_live_runs_ingestion_when_artifact_missing(
 
     monkeypatch.setattr(app_module, "ingest_file", _ingest)
 
-    resp = app_module.geojson_live(source="test-source")
+    try:
+        resp = app_module.geojson_live(source="test-source")
 
-    assert _json_response_payload(resp)["type"] == "FeatureCollection"
-    assert observed == {"source": "test-source", "target": str(artifact)}
+        assert _json_response_payload(resp)["type"] == "FeatureCollection"
+        assert observed == {"source": "test-source", "target": str(artifact)}
+    finally:
+        config_module.reload_settings()
 
 
 def test_geojson_live_raises_500_for_invalid_json(
@@ -148,6 +153,8 @@ def test_artifact_runs_ingestion_when_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    config_module.reload_settings()
     target = tmp_path / "new.geojson"
     observed: dict[str, str] = {}
 
@@ -160,17 +167,22 @@ def test_artifact_runs_ingestion_when_missing(
 
     monkeypatch.setattr(app_module, "ingest_file", _ingest)
 
-    resp = app_module.get_or_build_artifact(target=str(target), source="custom")
+    try:
+        resp = app_module.get_or_build_artifact(target=str(target), source="custom")
 
-    assert isinstance(resp, FileResponse)
-    assert Path(resp.path) == target
-    assert observed == {"source": "custom", "target": str(target)}
+        assert isinstance(resp, FileResponse)
+        assert Path(resp.path) == target
+        assert observed == {"source": "custom", "target": str(target)}
+    finally:
+        config_module.reload_settings()
 
 
 def test_artifact_raises_500_when_ingestion_does_not_create_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    config_module.reload_settings()
     target = tmp_path / "missing-output.geojson"
 
     def _ingest(source: str, target: str) -> Path:
@@ -179,11 +191,14 @@ def test_artifact_raises_500_when_ingestion_does_not_create_output(
 
     monkeypatch.setattr(app_module, "ingest_file", _ingest)
 
-    with pytest.raises(HTTPException) as exc_info:
-        app_module.get_or_build_artifact(target=str(target))
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.get_or_build_artifact(target=str(target))
 
-    assert exc_info.value.status_code == 500
-    assert exc_info.value.detail == "Ingestion finished but output file is missing"
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Ingestion finished but output file is missing"
+    finally:
+        config_module.reload_settings()
 
 
 def test_artifact_rejects_parent_traversal_target() -> None:
@@ -206,6 +221,8 @@ def test_route_endpoint_uses_ingestion_and_returns_route_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "true")
+    config_module.reload_settings()
     artifact = tmp_path / "flood.geojson"
 
     observed: dict[str, object] = {}
@@ -243,16 +260,79 @@ def test_route_endpoint_uses_ingestion_and_returns_route_payload(
         artifact_path=str(artifact),
     )
 
-    payload = routing_module.route_avoid_flood_high_risk(req)
+    try:
+        payload = routing_module.route_avoid_flood_high_risk(req)
 
-    assert payload["artifact_path"] == str(artifact)
-    assert payload["high_risk_polygon_count"] == 2
-    assert payload["using_avoid_polygons"] is True
-    assert payload["route"]["type"] == "FeatureCollection"
-    assert observed["ingest_source"] == "route-source"
-    assert observed["ingest_target"] == str(artifact)
-    assert observed["avoid_polygons"] == avoid
-    assert observed["radiuses"] is None
+        assert payload["artifact_path"] == str(artifact)
+        assert payload["high_risk_polygon_count"] == 2
+        assert payload["using_avoid_polygons"] is True
+        assert payload["route"]["type"] == "FeatureCollection"
+        assert observed["ingest_source"] == "route-source"
+        assert observed["ingest_target"] == str(artifact)
+        assert observed["avoid_polygons"] == avoid
+        assert observed["radiuses"] is None
+    finally:
+        config_module.reload_settings()
+
+
+def test_geojson_live_returns_503_when_artifact_missing_and_request_ingestion_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "false")
+    config_module.reload_settings()
+    artifact = tmp_path / "live-missing.geojson"
+    monkeypatch.setattr(app_module, "DEFAULT_ARTIFACT", artifact)
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.geojson_live()
+
+        assert exc_info.value.status_code == 503
+        assert "request-triggered ingestion is disabled" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
+
+
+def test_artifact_returns_503_when_missing_and_request_ingestion_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "false")
+    config_module.reload_settings()
+    target = tmp_path / "missing.geojson"
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.get_or_build_artifact(target=str(target))
+
+        assert exc_info.value.status_code == 503
+        assert "request-triggered ingestion is disabled" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
+
+
+def test_route_endpoint_returns_503_when_artifact_missing_and_request_ingestion_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALLOW_REQUEST_INGESTION", "false")
+    config_module.reload_settings()
+    artifact = tmp_path / "missing.geojson"
+    req = routing_module.RouteAvoidFloodsRequest(
+        start=routing_module.Coordinate(lat=46.0569, lon=14.5058),
+        end=routing_module.Coordinate(lat=45.8150, lon=15.9819),
+        artifact_path=str(artifact),
+    )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routing_module.route_avoid_flood_high_risk(req)
+
+        assert exc_info.value.status_code == 503
+        assert "request-triggered ingestion is disabled" in str(exc_info.value.detail)
+    finally:
+        config_module.reload_settings()
 
 
 def test_route_endpoint_falls_back_when_ors_rejects_avoid_polygon_area(

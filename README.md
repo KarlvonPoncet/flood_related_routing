@@ -1,5 +1,9 @@
 ![Flood routing header](assets/readme/header.png)
 
+# Flood Related Routing
+
+This project ingests GloFAS flood forecast data, turns it into GeoJSON flood-risk artifacts, and exposes them through a FastAPI service for routing and map display. In practice, it can fetch or refresh the latest flood data, serve the processed artifact, and help compute routes that avoid high-risk flood areas.
+
 # Ingestion API
 
 ## API Structure

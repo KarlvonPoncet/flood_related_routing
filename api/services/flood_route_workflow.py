@@ -65,6 +65,7 @@ def run_flood_aware_route(
             artifact_path=artifact_path,
             source=route_input.source,
             ingest_fn=dependencies.ingest_fn,
+            allow_request_ingestion=settings.allow_request_ingestion,
         )
 
         all_geometries = dependencies.load_geometries_fn(artifact_path)

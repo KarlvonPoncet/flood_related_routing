@@ -13,10 +13,19 @@ Coverage includes:
 - health endpoint
 - frontend serving behavior
 - artifact retrieval/build flow
+- artifact path hardening (`..` traversal rejection and absolute-path allowlist enforcement)
 - geojson live flow
 - routing endpoint orchestration
+- route `artifact_path` hardening with the same policy as `/artifact`
+- request-ingestion gate behavior (`ALLOW_REQUEST_INGESTION=true|false`) for `/geojson/live`, `/artifact`, and route artifact resolution
 - routing provider fallback behavior for avoid-area, unroutable-point, and distance-limit failures
 - midpoint-nearest polygon selection integration (200 limit)
+
+### Artifact Service Unit Tests (`tests/test_artifact_service.py`)
+
+Coverage includes:
+- `503` behavior when request-triggered ingestion is disabled and artifact is missing
+- per-artifact ingestion lock behavior that collapses concurrent rebuild attempts into a single ingestion run
 
 ### API Integration Tests (`tests/test_api.py`)
 
@@ -40,6 +49,7 @@ Coverage includes:
 - invalid numeric env handling
 - `ROUTING_PROVIDER` normalization
 - unsupported routing provider rejection
+- request-ingestion flag parsing/default behavior
 
 ### Polygon Selection Tests (`tests/test_polygon_selection_service.py`)
 

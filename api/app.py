@@ -41,10 +41,12 @@ def frontend() -> FileResponse:
 
 @app.get("/geojson/live")
 def geojson_live(source: str = Query("default", description="Ingestion source")) -> JSONResponse:
+    settings = get_settings()
     artifact_path = artifact_service.ensure_artifact_exists(
         artifact_path=DEFAULT_ARTIFACT,
         source=source,
         ingest_fn=ingest_file,
+        allow_request_ingestion=settings.allow_request_ingestion,
     )
     payload = artifact_service.load_geojson_payload(artifact_path)
     return JSONResponse(content=payload)
@@ -55,10 +57,12 @@ def get_or_build_artifact(
     target: str = Query(..., description="File path to return"),
     source: str = Query("default", description="Source used by ingestion when file is missing"),
 ) -> FileResponse:
-    target_path = path_policy_service.resolve_artifact_path(target, settings=get_settings())
+    settings = get_settings()
+    target_path = path_policy_service.resolve_artifact_path(target, settings=settings)
     output_path = artifact_service.ensure_output_file(
         target_path=target_path,
         source=source,
         ingest_fn=ingest_file,
+        allow_request_ingestion=settings.allow_request_ingestion,
     )
     return FileResponse(path=output_path, filename=output_path.name)

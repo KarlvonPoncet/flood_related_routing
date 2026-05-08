@@ -36,6 +36,7 @@ class Settings:
     custom_routing_osm_place: str | None
     custom_routing_osm_network_type: str
     custom_routing_simplify_graph: bool
+    allow_request_ingestion: bool
 
 
 def _env_int(name: str, default: int) -> int:
@@ -130,6 +131,7 @@ def get_settings() -> Settings:
         custom_routing_osm_place=os.getenv("CUSTOM_ROUTING_OSM_PLACE"),
         custom_routing_osm_network_type=os.getenv("CUSTOM_ROUTING_OSM_NETWORK_TYPE", "drive"),
         custom_routing_simplify_graph=_env_bool("CUSTOM_ROUTING_SIMPLIFY_GRAPH", True),
+        allow_request_ingestion=_env_bool("ALLOW_REQUEST_INGESTION", False),
     )
 
 

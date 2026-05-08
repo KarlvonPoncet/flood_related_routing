@@ -9,6 +9,7 @@ Centralized runtime settings via `api/config.py`.
 `Settings` fields:
 - path settings: `root_dir`, `default_artifact`, `frontend_index`, `raw_dir`, `zip_path`, `extract_dir`
 - routing settings: `routing_provider`, `max_avoid_polygons`, `simplify_tolerance_degrees`
+- request ingestion setting: `allow_request_ingestion`
 - OpenRouteService settings: `ors_api_key`, `ors_use_local`, `ors_local_directions_url`, `ors_require_api_key`, `ors_directions_url`, `ors_fallback_radius_meters`
 - custom routing graph settings: `custom_routing_graph_path`, `custom_routing_graph_metadata_path`, `custom_routing_osm_place`, `custom_routing_osm_network_type`, `custom_routing_simplify_graph`
 - ingestion geographic bounds: `eu_min_lon`, `eu_max_lon`, `eu_min_lat`, `eu_max_lat`
@@ -40,6 +41,7 @@ Supported overrides:
 - `EU_MAX_LON`
 - `EU_MIN_LAT`
 - `EU_MAX_LAT`
+- `ALLOW_REQUEST_INGESTION`
 
 ## Parsing Rules
 
@@ -47,6 +49,7 @@ Supported overrides:
 - Boolean parsing supports: `1/0`, `true/false`, `yes/no`, `on/off`.
 - Path env values are `expanduser()`-normalized.
 - Settings are cached with `lru_cache(maxsize=1)`.
+- `ALLOW_REQUEST_INGESTION` defaults to `false` (production-safe mode); set to `true` for local/dev request-triggered rebuilds.
 
 ## Routing Provider Resolution
 
