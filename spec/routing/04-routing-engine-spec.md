@@ -38,6 +38,7 @@ The flood-aware route orchestration passes providers:
 - optional fallback radius values
 
 Providers are responsible for translating those inputs into their own request format.
+Endpoint orchestration stays provider-neutral and calls the provider through generic routing hooks (not ORS-specific wrapper names).
 
 ## OpenRouteService Request Mapping
 

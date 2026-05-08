@@ -331,12 +331,11 @@ def compute_flood_aware_route(
     unroutable_error_fn: Callable[[HTTPException], bool] | None = None,
     distance_error_fn: Callable[[HTTPException], bool] | None = None,
     distance_limit_meters_fn: Callable[[str], float | None] | None = None,
-    call_ors_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if routing_provider is None:
         routing_provider = get_routing_provider()
     if call_route_fn is None:
-        call_route_fn = call_ors_fn or routing_provider.route
+        call_route_fn = routing_provider.route
     if area_error_fn is None:
         area_error_fn = routing_provider.is_avoid_polygon_area_error
     if unroutable_error_fn is None:
